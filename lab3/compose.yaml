@@ -1,0 +1,19 @@
+services:
+  security-agent:
+    build: .
+    image: lab3-security-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      # Development mode: mount source so edits are picked up without rebuilding
+      - .:/app
+    environment:
+      # ── LLM provider ──────────────────────────────────────────────────────
+      # Get your free key at https://console.groq.com
+      API_KEY: ${API_KEY}
+      # Optional: override the base URL (leave unset for the Groq default)
+      API_BASE_URL: ${API_BASE_URL:-}
+      # Pick a model that supports tool/function calling, e.g.:
+      #   llama-3.3-70b-versatile  (recommended)
+      #   mixtral-8x7b-32768
+      MODEL: ${MODEL:-llama-3.3-70b-versatile}
