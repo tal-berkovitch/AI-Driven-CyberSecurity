@@ -1,0 +1,8 @@
+.env
+.git/
+.chainlit/
+.files/
+app/.chainlit/
+app/.files/
+__pycache__/
+*.pyc
