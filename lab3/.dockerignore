@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Environment / secrets – NEVER copy into the image
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# uv / pip caches
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Editor / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
+
+# Chainlit runtime files (generated at runtime, not needed at build)
+.chainlit/
+chainlit.db

@@ -1,0 +1,9 @@
+services:
+  jupyterlab:
+    # https://jupyter-docker-stacks.readthedocs.io/en/latest/using/selecting.html#jupyter-scipy-notebook
+    image: cybersec-jupyter
+    container_name: jupyterlab-sec
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./work:/home/jovyan/work
