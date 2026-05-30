@@ -1,5 +1,7 @@
 # AI-Driven CyberSecurity
 
+**Author: Tal Berkovitch**
+
 A collection of labs exploring the intersection of AI/LLMs and cybersecurity — from threat intelligence analysis to agentic defense systems and event-driven pipelines.
 
 ## Labs
