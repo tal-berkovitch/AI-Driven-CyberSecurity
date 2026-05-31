@@ -10,8 +10,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Traffic capture / generation (Phase 1)
+# Traffic capture (Phase 1, collector tap)
 capture = ["scapy>=2.5"]
+# Benign/attack traffic generation (Phase 1+, attacker)
+generate = ["dnspython>=2.6"]
 # Detection backends (Phase 2). `morpheus` is installed separately on the lab box.
 detect = ["scikit-learn>=1.4", "torch>=2.2"]
 # Enrichment + CTI (Phase 3)
@@ -31,3 +33,6 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# "." makes `shared` importable; "containers" makes the per-agent packages
+# importable under the SAME name they use in their images (e.g. `defender.features`).
+pythonpath = [".", "containers"]

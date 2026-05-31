@@ -65,6 +65,18 @@ accelerated stack the course examples reference.)
 > If Kafka feels heavy early on, Phase 0–2 can use a local file/socket queue
 > behind the same producer/consumer interface, then promote to Kafka in Phase 4.
 
+**Where the packet tap runs (Phase 1 decision).** A Docker bridge is a learning
+switch, so a third container in promiscuous mode cannot passively see unicast
+traffic between two *other* containers. The defender therefore cannot sniff
+attacker→collector traffic directly. The tap instead lives on the **collector**,
+where 100% of benign traffic terminates and is visible — capture stays fully
+passive, no inline routing required. The collector parses each packet into a
+flat `CaptureEvent` and publishes it on a `capture` topic of the file-queue
+spine; the **defender** consumes those, extracts features, and (Phase 2+) scores
+them. So Phase 1 already exercises the producer/consumer spine end-to-end; the
+only change at the Kafka/Morpheus boundary is that the topic carries
+`FeatureRecord` instead of `CaptureEvent`.
+
 ---
 
 ## 3. The detection contract (the linchpin)
@@ -212,24 +224,26 @@ project/
   ARCHITECTURE.md
   shared/
     schema.py                 # FeatureRecord / ScoreResult / Alert
+    capture.py                # CaptureEvent (sensor -> feature plane)  [Phase 1]
+    dns.py                    # stdlib DNS wire helpers
     mitre/                    # curated DNS/SNMP technique KB (json)
     transport/                # producer/consumer iface (file → kafka)
   containers/
-    attacker/  benign_generator.py, attacks/{dns_tunnel,snmp_recon,snmp_amplify}.py
-    collector/ dns + snmpd configs
+    attacker/  main.py (benign DNS+SNMP generator) [Phase 1]; attacks/ [Phase 2]
+    collector/ dnsmasq.conf, snmpd.conf, entrypoint.sh, sensor.py (passive tap) [Phase 1]
     defender/
-      capture/    sniffer (scapy/tshark) [inline gateway = stretch]
-      features/   extractors → FeatureRecord
-      detect/     base.py, local_ae.py, isolation_forest.py, morpheus/
-      enrich/     vector db + MITRE lookup
-      cti/        groq client + prompts
-      agents/     AG2 orchestration
-      ui/         chainlit app
-      pipeline.py wires stages; backend from config
+      features/   util.py, dns.py, snmp.py, windows.py → FeatureRecord   [Phase 1]
+      baseline.py capture-consumer writes benign baseline CSV            [Phase 1]
+      main.py     consume(capture) → features → CSV; backend from config [Phase 1]
+      detect/     base.py, local_ae.py, isolation_forest.py, morpheus/   [Phase 2]
+      enrich/     vector db + MITRE lookup                               [Phase 3]
+      cti/        groq client + prompts                                  [Phase 3]
+      agents/     AG2 orchestration                                      [Phase 4]
+      ui/         chainlit app                                           [Phase 4]
   eval/
-    run_eval.py, metrics.py, report/
+    run_eval.py, metrics.py, report/                                    [Phase 2]
   data/
-    baseline/  eval/
+    queue/     baseline/  eval/   # queue/ = file-queue spine; baseline/ = Phase 1 CSV
   notebooks/   tests/
 ```
 

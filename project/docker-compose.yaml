@@ -1,7 +1,16 @@
 name: soc-dns-snmp
 
-# Phase 0 topology: three agents on a STRICTLY ISOLATED bridge network.
+# Phase 1 topology: three agents on a STRICTLY ISOLATED bridge network.
 # `internal: true` => no route to host or the internet. Safe detonation.
+#
+#   attacker (benign DNS+SNMP gen) --> collector (dnsmasq + snmpd + passive tap)
+#                                            |  parsed CaptureEvents
+#                                            v  file-queue spine (./data/queue)
+#                                      defender (features -> baseline CSV in ./data/baseline)
+#
+# The packet tap lives on the collector because a Docker bridge is a learning
+# switch: a third container can't passively sniff unicast between two others.
+# The collector sees 100% of benign traffic, so capture stays fully passive.
 #
 # Verify isolation after `docker compose up`:
 #   docker compose exec attacker python -c "import socket; socket.create_connection(('8.8.8.8',53),3)"
@@ -15,6 +24,12 @@ services:
     container_name: soc-collector
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - QUEUE_ROOT=/app/data/queue
+      - CAPTURE_IFACE=eth0
+    # NET_RAW/NET_ADMIN: scapy opens raw AF_PACKET sockets for the passive tap.
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes:
+      - ./data:/app/data
     networks: [socnet]
 
   defender:
@@ -25,9 +40,12 @@ services:
     environment:
       - DETECTOR_BACKEND=${DETECTOR_BACKEND:-local}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    # Needed for passive bridge sniffing in Phase 1+ (scapy raw sockets).
-    cap_add: [NET_RAW, NET_ADMIN]
+      - QUEUE_ROOT=/app/data/queue
+      - BASELINE_DIR=/app/data/baseline
+      - WINDOW_SECONDS=${WINDOW_SECONDS:-10}
     depends_on: [collector]
+    volumes:
+      - ./data:/app/data
     networks: [socnet]
 
   attacker:
