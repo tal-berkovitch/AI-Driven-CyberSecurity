@@ -1,0 +1,265 @@
+# Architecture: Multi-Agent AI System for DNS/SNMP Anomaly Detection & CTI Generation
+
+**Course:** AI in Cybersecurity based on NVIDIA Morpheus (HIT)
+**Category:** Type 2 — Integrated Project
+**Author:** Tal Berkovitch
+
+---
+
+## 1. Design principles
+
+Three principles drive every decision below:
+
+1. **Swappable detection backend.** The anomaly detector is hidden behind one
+   interface. The "home" backend (local autoencoder, CPU/local GPU) and the
+   "lab" backend (NVIDIA Morpheus DFP on a lab GPU box) are interchangeable via
+   a single config flag. *No downstream code changes when switching.*
+2. **Stable data contracts.** Every stage communicates through fixed schemas
+   (`FeatureRecord`, `ScoreResult`, `Alert`). The feature schema is designed to
+   be **Morpheus-DFP-compatible from day one** (flat numeric/categorical table)
+   so there is zero migration tax when the Morpheus box becomes available.
+3. **Incremental full vision.** The full proposal (3 isolated containers, inline
+   gateway, multi-agent orchestration) is built in phases; each phase leaves a
+   working, demonstrable, defensible slice.
+
+---
+
+## 2. Runtime topology (the "full vision")
+
+Strictly isolated Docker bridge network (`internal: true`, no route to host/WAN).
+
+```
+            ┌──────────────────────────────────────────────────────────┐
+            │            isolated docker bridge (internal-only)          │
+            │                                                            │
+  ┌─────────┴─────────┐      ┌───────────────────────┐     ┌────────────┴────────┐
+  │  Container 1       │      │  Container 2           │     │  Container 3        │
+  │  ATTACKER          │      │  DEFENDER              │     │  COLLECTOR          │
+  │  (traffic gen)     │─────▶│  (gateway + AI plane)  │────▶│  (dummy dest)       │
+  │                    │      │                        │     │                     │
+  │ benign generator   │      │ capture → features     │     │ DNS resolver        │
+  │ attack injectors:  │      │   → DETECTOR (pluggable)│     │   (dnsmasq/CoreDNS) │
+  │  - DNS tunneling   │      │   → enrichment (MITRE) │     │ SNMP agent (snmpd)  │
+  │  - SNMP recon/walk │      │   → CTI (LLM)          │     │                     │
+  │  - SNMP amplify    │      │   → ChainLit UI        │     │                     │
+  └────────────────────┘      └───────────┬────────────┘     └─────────────────────┘
+                                           │
+                              feature/alert transport (Kafka topic)
+                                           │
+                       ┌───────────────────┴────────────────────┐
+                       │  DETECTION BACKEND (swappable consumer)  │
+                       │   local: Python AE / IsolationForest     │
+                       │   lab:   Morpheus DFP pipeline (GPU)     │
+                       └──────────────────────────────────────────┘
+```
+
+**Why Kafka as the spine.** The feature extractor publishes to a `features`
+topic and consumes from an `alerts` topic. In *local mode* a plain Python
+consumer reads `features`, scores, and writes `alerts`. In *Morpheus mode* a
+Morpheus `KafkaSourceStage` reads the **same** `features` topic, runs GPU
+inference, and writes the **same** `alerts` topic. Enrichment, CTI, and UI
+consume `alerts` and never know which backend produced them. This is what makes
+the home→Morpheus switch free. (Kafka + Morpheus + Triton is also the exact
+accelerated stack the course examples reference.)
+
+> If Kafka feels heavy early on, Phase 0–2 can use a local file/socket queue
+> behind the same producer/consumer interface, then promote to Kafka in Phase 4.
+
+---
+
+## 3. The detection contract (the linchpin)
+
+```python
+# shared/schema.py
+@dataclass
+class FeatureRecord:
+    protocol: str            # "dns" | "snmp"
+    ts: float
+    src: str
+    dst: str
+    features: dict[str, float]   # flat, numeric — Morpheus-DFP compatible
+    meta: dict                    # raw context for the LLM (query name, OIDs…)
+
+@dataclass
+class ScoreResult:
+    anomaly_score: float          # reconstruction error / model score
+    is_anomaly: bool
+    feature_attributions: dict[str, float]   # per-feature contribution (z-score)
+
+@dataclass
+class Alert:
+    record: FeatureRecord
+    score: ScoreResult
+    candidate_techniques: list[str]   # MITRE IDs from enrichment
+    cti_report: str | None            # filled by CTI stage
+```
+
+```python
+# defender/detect/base.py
+class Detector(Protocol):
+    def fit(self, baseline: pd.DataFrame) -> None: ...
+    def score(self, features: pd.DataFrame) -> list[ScoreResult]: ...
+    def save(self, path: str) -> None: ...
+    def load(self, path: str) -> None: ...
+```
+
+Backends (selected by `DETECTOR_BACKEND` env var):
+
+| Backend            | Class                       | Role                                   |
+|--------------------|-----------------------------|----------------------------------------|
+| `local`            | `LocalAutoencoderDetector`  | Home pipeline (PyTorch, CPU/local GPU) |
+| `isolation_forest` | `IsolationForestDetector`   | **Evaluation baseline to beat**        |
+| `morpheus`         | `MorpheusDetector`          | Lab GPU pipeline (Morpheus DFP)        |
+
+**Key alignment:** the local autoencoder mirrors Morpheus `dfencoder`'s
+per-feature loss, so `feature_attributions` (the explainability signal feeding
+the LLM) is identical across backends. Evaluation rigor and LLM explainability
+share one mechanism.
+
+---
+
+## 4. Feature engineering (physically meaningful → explainable)
+
+**DNS** — `query_name_length`, `subdomain_entropy`, `label_count`,
+`txt_record_count`, `null_record_count`, `qtype_distribution`,
+`unique_subdomains_per_domain`, `query_rate`, `response_size`,
+`upstream_vs_cached_ratio`.
+
+**SNMP** — `get_rate`, `getnext_rate`, `getbulk_rate`, `oid_range_walked`,
+`packet_size`, `request_response_ratio`, `community_string_entropy`,
+`distinct_oids_per_window`.
+
+These map directly to attacker behavior (e.g., DNS tunneling inflates
+`query_name_length` + `subdomain_entropy` + `txt_record_count`; an SNMP walk
+inflates `getnext_rate` + `distinct_oids_per_window`), which is exactly what the
+per-feature attribution will surface for the LLM.
+
+---
+
+## 5. CTI / explainability layer
+
+```
+ScoreResult.feature_attributions  ─┐
+FeatureRecord.meta (raw context)  ─┼─▶ vector DB (MITRE DNS/SNMP KB)
+                                   │      → candidate techniques (RAG)
+                                   └─▶ Groq LLM (SOC-analyst prompt)
+                                          → human-readable CTI report
+```
+
+- **MITRE knowledge base** (`shared/mitre/`): curated JSON of DNS/SNMP-relevant
+  techniques with descriptions, embedded for retrieval. Small and auditable.
+- **RAG, not free generation:** the LLM is grounded on retrieved technique cards
+  + the quantified anomaly evidence, reducing hallucination.
+
+**MITRE ground-truth labels** (also the eval keys):
+
+| Attack class        | MITRE technique(s)                                          |
+|---------------------|------------------------------------------------------------|
+| DNS tunneling (C2)  | T1071.004 (App Layer Protocol: DNS), T1572 (Protocol Tunneling) |
+| DNS exfiltration    | T1048 / T1048.003 (Exfil over alternative/unencrypted protocol) |
+| SNMP recon / walk   | T1046 (Network Service Discovery)                          |
+| SNMP MIB dump       | T1602.001 (Data from Config Repo: SNMP MIB Dump)           |
+| SNMP amplification  | T1498.002 (Reflection Amplification — DDoS)                |
+
+> Note: the proposal mixed "SNMP reconnaissance" (T1046) and "SNMP reflection"
+> (T1498.002) — these are distinct. We support both as separate attack classes.
+
+---
+
+## 6. Evaluation harness (a first-class deliverable)
+
+This is the centerpiece that answers the lecturer's "robust evaluation" concern.
+
+**Datasets**
+- Benign: diverse, realistic (multiple qtypes, realistic timing/jitter, mixed
+  SNMP polling cadences). Split train/validation/test.
+- Attacks on a **difficulty gradient**: loud (high-volume tunneling, fast walk)
+  → subtle (low-and-slow tunneling, paced walk). This is what prevents the
+  evaluation from being trivially separable.
+
+**Detection metrics** — ROC-AUC, PR-AUC, **FPR at fixed recall**, per-attack
+recall, detection latency. Reported **for every backend** (local AE vs
+Isolation Forest vs Morpheus AE) → a single comparison table.
+
+**CTI metrics** — MITRE mapping **top-1 / top-k accuracy** vs ground truth;
+retrieval hit-rate (reported separately from generation quality); report
+faithfulness via a short rubric.
+
+**Throughput** — events/sec and per-event latency, used for the **CPU vs GPU**
+comparison once Morpheus is in (directly hits a course example).
+
+---
+
+## 7. Orchestration & UI
+
+- **AG2** wraps the linear pipeline as named agents (Detector / Enricher /
+  Analyst) so the demo reads as a multi-agent SOC. *Built in Phase 4 — the
+  pipeline works as a plain function chain first, AG2 is a presentation layer
+  on top, never a dependency of the core.*
+- **ChainLit** UI: live stream of traffic, anomaly flags with per-feature
+  evidence, and generated CTI reports.
+- **Groq** for low-latency LLM inference; **uv** for the Python environment.
+
+---
+
+## 8. Repository structure
+
+```
+project/
+  docker-compose.yaml         # isolated bridge, 3 services (+ kafka)
+  .env.example                # DETECTOR_BACKEND, GROQ_API_KEY, ...
+  pyproject.toml              # uv-managed
+  ARCHITECTURE.md
+  shared/
+    schema.py                 # FeatureRecord / ScoreResult / Alert
+    mitre/                    # curated DNS/SNMP technique KB (json)
+    transport/                # producer/consumer iface (file → kafka)
+  containers/
+    attacker/  benign_generator.py, attacks/{dns_tunnel,snmp_recon,snmp_amplify}.py
+    collector/ dns + snmpd configs
+    defender/
+      capture/    sniffer (scapy/tshark) [inline gateway = stretch]
+      features/   extractors → FeatureRecord
+      detect/     base.py, local_ae.py, isolation_forest.py, morpheus/
+      enrich/     vector db + MITRE lookup
+      cti/        groq client + prompts
+      agents/     AG2 orchestration
+      ui/         chainlit app
+      pipeline.py wires stages; backend from config
+  eval/
+    run_eval.py, metrics.py, report/
+  data/
+    baseline/  eval/
+  notebooks/   tests/
+```
+
+---
+
+## 9. Phased build plan
+
+| Phase | Deliverable (each is independently defensible)                          |
+|-------|------------------------------------------------------------------------|
+| 0 | Repo + uv + docker-compose; 3 stub containers on isolated bridge; `schema.py`; transport iface. **Proof: containers talk, net is isolated.** |
+| 1 | Benign generators (DNS+SNMP), collector services, capture + feature extraction → baseline CSV. **Proof: real benign feature dataset.** |
+| 2 | `local` AE + `isolation_forest` behind `Detector`; graded attack injectors; eval harness. **Proof: benchmark table — the rigor centerpiece.** |
+| 3 | MITRE KB + vector DB + Groq CTI using per-feature attributions; CTI eval. **Proof: explainable reports + mapping accuracy.** |
+| 4 | ChainLit UI + AG2 multi-agent wrapper + Kafka transport. **Proof: live multi-agent demo.** |
+| 5 | `morpheus` backend (DFP pipeline / Kafka source) once lab GPU available; re-run eval. **Proof: Morpheus results + CPU-vs-GPU throughput.** |
+| 6 | Written report + presentation/demo. |
+
+**Scope-control guarantee:** if time runs short, stopping after Phase 3 still
+yields a complete, evaluated, explainable detection system. Phases 4–5 are
+upside, not load-bearing.
+
+---
+
+## 10. Open risks & mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Evaluation looks circular (synthetic benign vs synthetic attack) | Difficulty-graded attacks + baselines to beat + FPR reporting (§6) |
+| Inline transparent gateway eats time | Start with passive bridge sniffer (same features); true inline = stretch |
+| AG2 adds failure modes to the core | Core pipeline works without AG2; AG2 is a Phase-4 presentation layer |
+| Morpheus box availability/timing | Home pipeline is fully functional; Morpheus is a swap-in via stable contract |
+| LLM hallucinated CTI | RAG grounding + separate retrieval-accuracy metric |
+```

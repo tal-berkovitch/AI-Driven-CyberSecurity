@@ -1,0 +1,52 @@
+{
+  "techniques": [
+    {
+      "id": "T1071.004",
+      "name": "Application Layer Protocol: DNS",
+      "tactic": "Command and Control",
+      "protocol": "dns",
+      "description": "Adversaries use the DNS protocol for command and control, blending malicious traffic with normal DNS resolution. Often paired with tunneling.",
+      "indicators": ["high query_name_length", "high subdomain_entropy", "elevated txt_record_count"]
+    },
+    {
+      "id": "T1572",
+      "name": "Protocol Tunneling",
+      "tactic": "Command and Control",
+      "protocol": "dns",
+      "description": "Adversaries tunnel another protocol's data inside DNS queries/responses to bypass network controls.",
+      "indicators": ["high subdomain_entropy", "many unique_subdomains_per_domain", "abnormal qtype distribution"]
+    },
+    {
+      "id": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "tactic": "Exfiltration",
+      "protocol": "dns",
+      "description": "Data is exfiltrated over an unencrypted protocol such as DNS, encoding payload data in query names.",
+      "indicators": ["high query_name_length", "sustained high query_rate", "large encoded labels"]
+    },
+    {
+      "id": "T1046",
+      "name": "Network Service Discovery",
+      "tactic": "Discovery",
+      "protocol": "snmp",
+      "description": "Adversaries enumerate services and devices. SNMP walks/sweeps reveal device inventory and configuration.",
+      "indicators": ["high getnext_rate", "many distinct_oids_per_window", "wide oid_range_walked"]
+    },
+    {
+      "id": "T1602.001",
+      "name": "Data from Configuration Repository: SNMP (MIB Dump)",
+      "tactic": "Collection",
+      "protocol": "snmp",
+      "description": "Adversaries query SNMP MIBs to collect device configuration data.",
+      "indicators": ["bulk getbulk_rate", "large response sizes", "config OID ranges accessed"]
+    },
+    {
+      "id": "T1498.002",
+      "name": "Network Denial of Service: Reflection Amplification",
+      "tactic": "Impact",
+      "protocol": "snmp",
+      "description": "Adversaries abuse SNMP (e.g. GetBulk) to reflect and amplify traffic toward a victim for denial of service.",
+      "indicators": ["spoofed src", "high request_response_ratio", "large response_size vs request_size"]
+    }
+  ]
+}

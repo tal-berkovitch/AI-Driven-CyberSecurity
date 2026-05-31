@@ -1,0 +1,47 @@
+name: soc-dns-snmp
+
+# Phase 0 topology: three agents on a STRICTLY ISOLATED bridge network.
+# `internal: true` => no route to host or the internet. Safe detonation.
+#
+# Verify isolation after `docker compose up`:
+#   docker compose exec attacker python -c "import socket; socket.create_connection(('8.8.8.8',53),3)"
+#   -> should fail (network unreachable). Resolving 'collector' should succeed.
+
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: containers/collector/Dockerfile
+    container_name: soc-collector
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks: [socnet]
+
+  defender:
+    build:
+      context: .
+      dockerfile: containers/defender/Dockerfile
+    container_name: soc-defender
+    environment:
+      - DETECTOR_BACKEND=${DETECTOR_BACKEND:-local}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # Needed for passive bridge sniffing in Phase 1+ (scapy raw sockets).
+    cap_add: [NET_RAW, NET_ADMIN]
+    depends_on: [collector]
+    networks: [socnet]
+
+  attacker:
+    build:
+      context: .
+      dockerfile: containers/attacker/Dockerfile
+    container_name: soc-attacker
+    environment:
+      - COLLECTOR_HOST=collector
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on: [collector, defender]
+    networks: [socnet]
+
+networks:
+  socnet:
+    driver: bridge
+    internal: true

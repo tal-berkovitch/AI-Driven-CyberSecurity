@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+
+# Data & artifacts (keep dir structure via .gitkeep)
+data/queue/*
+data/baseline/*
+data/eval/*
+models/*
+!**/.gitkeep
+
+# Logs / misc
+*.log
