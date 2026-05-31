@@ -56,6 +56,9 @@ services:
     environment:
       - COLLECTOR_HOST=collector
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # benign (default) | all | comma-list of dns_tunnel,snmp_recon,snmp_amplify
+      - ATTACK_MODE=${ATTACK_MODE:-benign}
+      - ATTACK_INTENSITY=${ATTACK_INTENSITY:-loud}
     depends_on: [collector, defender]
     networks: [socnet]
 

@@ -241,7 +241,10 @@ project/
       agents/     AG2 orchestration                                      [Phase 4]
       ui/         chainlit app                                           [Phase 4]
   eval/
-    run_eval.py, metrics.py, report/                                    [Phase 2]
+    scenarios.py  graded labeled synthetic traffic via real extractors  [Phase 2]
+    metrics.py    ROC/PR-AUC, FPR@recall, per-attack recall             [Phase 2]
+    run_eval.py   benchmark all backends -> report/results.{md,csv}     [Phase 2]
+    datasets/cic_bell.py  CIC-Bell-DNS-EXF-2021 PCAP-replay adapter      [Phase 2]
   data/
     queue/     baseline/  eval/   # queue/ = file-queue spine; baseline/ = Phase 1 CSV
   notebooks/   tests/

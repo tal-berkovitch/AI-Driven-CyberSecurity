@@ -126,6 +126,26 @@ def _parse_snmp(pkt) -> CaptureEvent | None:  # noqa: ANN001
     )
 
 
+def parse_packet(pkt) -> CaptureEvent | None:  # noqa: ANN001
+    """Parse one scapy packet into a CaptureEvent, or None if it isn't udp/53|161.
+
+    Shared by the live tap and the offline PCAP adapter (eval/datasets) so real
+    datasets are turned into features by the *exact same* code path as live traffic.
+    Never raises — a malformed packet just yields None.
+    """
+    if UDP not in pkt or IP not in pkt:
+        return None
+    udp = pkt[UDP]
+    try:
+        if udp.dport == 53 or udp.sport == 53:
+            return _parse_dns(pkt) if DNS in pkt else None
+        if udp.dport == 161 or udp.sport == 161:
+            return _parse_snmp(pkt) if SNMP in pkt else None
+    except Exception:  # noqa: BLE001 — never let one bad packet kill the tap
+        return None
+    return None
+
+
 def main() -> None:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
@@ -138,19 +158,7 @@ def main() -> None:
 
     def handle(pkt) -> None:  # noqa: ANN001
         nonlocal n
-        if UDP not in pkt or IP not in pkt:
-            return
-        udp = pkt[UDP]
-        try:
-            if udp.dport == 53 or udp.sport == 53:
-                ev = _parse_dns(pkt) if DNS in pkt else None
-            elif udp.dport == 161 or udp.sport == 161:
-                ev = _parse_snmp(pkt) if SNMP in pkt else None
-            else:
-                return
-        except Exception as exc:  # noqa: BLE001 — never let one bad packet kill the tap
-            LOG.debug("parse error: %s", exc)
-            return
+        ev = parse_packet(pkt)
         if ev is None:
             return
         producer.send(CAPTURE_TOPIC, ev.to_dict())

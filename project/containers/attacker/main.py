@@ -117,6 +117,21 @@ def main() -> None:
         threading.Thread(target=dns_loop, args=(server_ip,), daemon=True, name="dns"),
         threading.Thread(target=snmp_loop, args=(server_ip,), daemon=True, name="snmp"),
     ]
+
+    # ATTACK_MODE adds real-packet attack injectors ON TOP of benign traffic so
+    # captures contain a realistic benign+attack mix. "benign" (default) = none;
+    # "all" = every injector; or a comma-separated list of attack names.
+    from .attacks import REGISTRY  # local import keeps benign-only startup lean
+
+    mode = os.getenv("ATTACK_MODE", "benign").lower().strip()
+    selected = list(REGISTRY) if mode == "all" else [m for m in mode.split(",") if m in REGISTRY]
+    if mode not in ("benign", "") and not selected:
+        LOG.warning("ATTACK_MODE=%r matched no injectors (known: %s)", mode, list(REGISTRY))
+    for name in selected:
+        LOG.warning("launching attack injector: %s", name)
+        threads.append(threading.Thread(
+            target=REGISTRY[name], args=(server_ip, _stop), daemon=True, name=name))
+
     for t in threads:
         t.start()
     try:
