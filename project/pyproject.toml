@@ -16,10 +16,11 @@ capture = ["scapy>=2.5"]
 generate = ["dnspython>=2.6"]
 # Detection backends (Phase 2). `morpheus` is installed separately on the lab box.
 detect = ["scikit-learn>=1.4", "torch>=2.2"]
-# Enrichment + CTI (Phase 3)
-cti = ["groq>=0.11", "sentence-transformers>=3.0", "chromadb>=0.5"]
-# UI + orchestration (Phase 4)
-ui = ["chainlit>=1.1", "ag2>=0.3"]
+# Enrichment + CTI (Phase 3); Phase 4 adds AG2 multi-agent CTI via Groq's OpenAI-compat API.
+# sentence-transformers/chromadb remain as the optional embedding-RAG upgrade path.
+cti = ["openai>=1.0", "ag2>=0.3", "sentence-transformers>=3.0", "chromadb>=0.5"]
+# SOC UI (Phase 4): ChainLit dashboard + analyst chat (Groq via openai compat).
+ui = ["chainlit>=1.1", "openai>=1.0"]
 # Dev tooling
 dev = ["pytest>=8.0", "ruff>=0.6"]
 

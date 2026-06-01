@@ -202,15 +202,26 @@ comparison once Morpheus is in (directly hits a course example).
 
 ---
 
-## 7. Orchestration & UI
+## 7. Orchestration & UI (Phase 4)
 
-- **AG2** wraps the linear pipeline as named agents (Detector / Enricher /
-  Analyst) so the demo reads as a multi-agent SOC. *Built in Phase 4 — the
-  pipeline works as a plain function chain first, AG2 is a presentation layer
-  on top, never a dependency of the core.*
-- **ChainLit** UI: live stream of traffic, anomaly flags with per-feature
-  evidence, and generated CTI reports.
-- **Groq** for low-latency LLM inference; **uv** for the Python environment.
+Both LLM-facing pieces run on the **egress side**, OFF the air-gapped `socnet`,
+and touch the pipeline only through the shared `./data` file-queue. The detonation
+plane (attacker/collector/defender) never gains internet access.
+
+- **AG2** drives CTI generation in the **CTI worker** (`containers/cti/agents.py`):
+  a bounded per-alert group chat — a **Threat-Analyst** agent assesses severity and
+  confirms which retrieved MITRE techniques the evidence supports, a **Report-Writer**
+  agent emits the final report. It reuses the *same* grounded evidence as the
+  deterministic path, and `generate_cti` returns `None` (→ offline template) on a
+  missing key, a missing `autogen` install, or any error — so AG2 is a presentation/
+  orchestration layer, never a hard dependency of the core.
+- **ChainLit** UI (`containers/ui/`): a 5th container on the egress network, port 8000.
+  It tails the shared queue **read-only** and streams live traffic summaries, anomaly
+  flags with per-feature evidence, and the generated CTI reports; it also offers an
+  interactive analyst chat that answers follow-ups via Groq, grounded on the most
+  recent alert's evidence + MITRE cards. Pure formatting lives in `ui/render.py`.
+- **Groq** (OpenAI-compatible endpoint, via `shared/llm.py`) for both AG2 and the UI
+  chat; **uv** for the Python environment.
 
 ---
 
@@ -226,6 +237,7 @@ project/
     schema.py                 # FeatureRecord / ScoreResult / Alert
     capture.py                # CaptureEvent (sensor -> feature plane)  [Phase 1]
     dns.py                    # stdlib DNS wire helpers
+    llm.py                    # Groq (OpenAI-compat) access for cti+ui   [Phase 4]
     mitre/                    # curated DNS/SNMP technique KB (json)
     transport/                # producer/consumer iface (file → kafka)
   containers/
@@ -237,9 +249,9 @@ project/
       detect/     base.py, local_ae.py, isolation_forest.py, morpheus/   [Phase 2]
       enrich/     mitre_map.py: attribution → MITRE techniques           [Phase 3]
       main.py     record: features→CSV | detect: score→enrich→alerts     [Phase 1/3]
-      agents/     AG2 orchestration                                      [Phase 4]
-    cti/          groq_client.py, prompts.py, main.py — egress worker    [Phase 3]
-    ui/           chainlit app                                           [Phase 4]
+    cti/          prompts.py, main.py — egress worker                    [Phase 3]
+                  agents.py: AG2 multi-agent CTI group chat (egress)     [Phase 4]
+    ui/           app.py (chainlit), render.py — egress dashboard+chat   [Phase 4]
   eval/
     scenarios.py  graded labeled synthetic traffic via real extractors  [Phase 2]
     metrics.py    ROC/PR-AUC, FPR@recall, per-attack recall             [Phase 2]
@@ -263,7 +275,7 @@ project/
 | 1 | Benign generators (DNS+SNMP), collector services, capture + feature extraction → baseline CSV. **Proof: real benign feature dataset.** |
 | 2 | `local` AE + `isolation_forest` behind `Detector`; graded attack injectors; eval harness. **Proof: benchmark table — the rigor centerpiece.** |
 | 3 | MITRE KB + vector DB + Groq CTI using per-feature attributions; CTI eval. **Proof: explainable reports + mapping accuracy.** |
-| 4 | ChainLit UI + AG2 multi-agent wrapper + Kafka transport. **Proof: live multi-agent demo.** |
+| 4 | ✅ AG2 multi-agent CTI (egress) + ChainLit dashboard & analyst chat (egress, port 8000). **Proof: live multi-agent SOC demo; air-gap preserved.** (Kafka transport deferred — file-queue spine still in use.) |
 | 5 | `morpheus` backend (DFP pipeline / Kafka source) once lab GPU available; re-run eval. **Proof: Morpheus results + CPU-vs-GPU throughput.** |
 | 6 | Written report + presentation/demo. |
 

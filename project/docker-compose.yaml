@@ -83,6 +83,25 @@ services:
     volumes:
       - ./data:/app/data
 
+  # ChainLit SOC UI: also OFF socnet (egress for the analyst chat). Mounts the
+  # shared ./data volume READ-ONLY — it only observes the file-queue spine, never
+  # writes to it and never touches the detonation network. Open http://localhost:8000.
+  ui:
+    build:
+      context: .
+      dockerfile: containers/ui/Dockerfile
+    container_name: soc-ui
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - QUEUE_ROOT=/app/data/queue
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+    ports:
+      - "${UI_PORT:-8000}:8000"
+    depends_on: [defender, cti]
+    volumes:
+      - ./data:/app/data:ro
+
 networks:
   socnet:
     driver: bridge

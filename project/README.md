@@ -21,24 +21,32 @@ attacker ──▶ defender (capture ─▶ features ─▶ DETECTOR ─▶ enri
 
 ## Status
 
-**Phase 0 — skeleton complete.** Isolated 3-container network, shared data
-contracts (`shared/schema.py`), and the transport interface (`shared/transport/`)
-are in place. See the phase table in ARCHITECTURE.md §9.
+**Phase 4 — full multi-agent SOC.** Live loop verified end-to-end: isolated
+3-container detonation plane (attacker/collector/defender) → autoencoder detection →
+MITRE enrichment → **AG2 multi-agent** CTI → **ChainLit** dashboard + analyst chat.
+The two LLM-facing services (CTI worker, UI) run on the egress side and share only
+the read path of `./data`; the detonation plane stays air-gapped. See the phase
+table in ARCHITECTURE.md §9.
 
 ## Quick start
 
 ```bash
-cp .env.example .env          # then set GROQ_API_KEY when you reach Phase 3
+cp .env.example .env          # set GROQ_API_KEY for AG2 CTI + the analyst chat
 
-# Bring up the isolated 3-container network
-docker compose up --build
+# Train the detector(s) once (writes models/{dns,snmp}_local.pt):
+uv run --extra detect python -m eval.train
 
-# In the logs you should see:
-#   soc-collector  | collector up; listening on udp/53 (dns) and udp/161 (snmp)
-#   soc-defender   | defender up; detection backend=local
-#   soc-attacker   | sent DNS query qname=www.example.local -> collector:53
-#   soc-collector  | DNS query from 10.x.x.x qname=www.example.local
+# Bring up the full stack in live-detection mode:
+DEFENDER_MODE=detect ATTACK_MODE=all docker compose up --build
+
+# Then open the SOC console:
+#   http://localhost:8000
+# Live traffic, anomaly alerts (with per-feature evidence), and CTI reports stream
+# in; ask the analyst follow-up questions about the latest alert.
 ```
+
+Without a `GROQ_API_KEY` everything still runs: CTI falls back to a deterministic
+grounded template and the UI chat reports the LLM is unavailable.
 
 ### Verify the network is truly isolated
 
@@ -65,6 +73,9 @@ uv run pytest                            # contract + transport round-trip tests
 | `shared/transport/` | Pluggable message transport (file queue now, Kafka later) |
 | `shared/mitre/` | Curated DNS/SNMP MITRE ATT&CK knowledge base |
 | `containers/attacker` | Benign generator + attack injectors |
-| `containers/collector` | Dummy DNS/SNMP destination |
-| `containers/defender` | Capture → detect → enrich → CTI → UI pipeline |
-| `eval/` | Evaluation harness (metrics, graded attacks) |
+| `containers/collector` | Dummy DNS/SNMP destination + passive tap |
+| `containers/defender` | Capture → features → detect → enrich → alerts (air-gapped) |
+| `containers/cti` | Egress worker: AG2 multi-agent CTI from alerts → reports |
+| `containers/ui` | Egress ChainLit dashboard + analyst chat (port 8000) |
+| `shared/llm.py` | Groq (OpenAI-compatible) access shared by cti + ui |
+| `eval/` | Evaluation harness (metrics, graded attacks, CTI mapping) |
