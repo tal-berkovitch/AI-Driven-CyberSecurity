@@ -234,19 +234,22 @@ project/
     defender/
       features/   util.py, dns.py, snmp.py, windows.py → FeatureRecord   [Phase 1]
       baseline.py capture-consumer writes benign baseline CSV            [Phase 1]
-      main.py     consume(capture) → features → CSV; backend from config [Phase 1]
       detect/     base.py, local_ae.py, isolation_forest.py, morpheus/   [Phase 2]
-      enrich/     vector db + MITRE lookup                               [Phase 3]
-      cti/        groq client + prompts                                  [Phase 3]
+      enrich/     mitre_map.py: attribution → MITRE techniques           [Phase 3]
+      main.py     record: features→CSV | detect: score→enrich→alerts     [Phase 1/3]
       agents/     AG2 orchestration                                      [Phase 4]
-      ui/         chainlit app                                           [Phase 4]
+    cti/          groq_client.py, prompts.py, main.py — egress worker    [Phase 3]
+    ui/           chainlit app                                           [Phase 4]
   eval/
     scenarios.py  graded labeled synthetic traffic via real extractors  [Phase 2]
     metrics.py    ROC/PR-AUC, FPR@recall, per-attack recall             [Phase 2]
     run_eval.py   benchmark all backends -> report/results.{md,csv}     [Phase 2]
     datasets/cic_bell.py  CIC-Bell-DNS-EXF-2021 PCAP-replay adapter      [Phase 2]
+    train.py      fit AE on benign baseline -> models/{proto}_local.pt   [Phase 3]
+    cti_eval.py   MITRE mapping top-1/top-k accuracy                     [Phase 3]
   data/
-    queue/     baseline/  eval/   # queue/ = file-queue spine; baseline/ = Phase 1 CSV
+    queue/  baseline/  eval/  real/  reports/   # spine; CSVs; datasets; CTI reports
+  models/      # trained detectors (gitignored)
   notebooks/   tests/
 ```
 

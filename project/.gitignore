@@ -13,6 +13,7 @@ data/queue/*
 data/baseline/*
 data/eval/*
 data/real/*
+data/reports/*
 models/*
 !**/.gitkeep
 

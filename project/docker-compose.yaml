@@ -39,13 +39,16 @@ services:
     container_name: soc-defender
     environment:
       - DETECTOR_BACKEND=${DETECTOR_BACKEND:-local}
+      - DEFENDER_MODE=${DEFENDER_MODE:-record}   # record (build dataset) | detect (live scoring)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - QUEUE_ROOT=/app/data/queue
       - BASELINE_DIR=/app/data/baseline
+      - MODELS_DIR=/app/models
       - WINDOW_SECONDS=${WINDOW_SECONDS:-10}
     depends_on: [collector]
     volumes:
       - ./data:/app/data
+      - ./models:/app/models   # trained detector loaded in detect mode (read-only use)
     networks: [socnet]
 
   attacker:
@@ -61,6 +64,24 @@ services:
       - ATTACK_INTENSITY=${ATTACK_INTENSITY:-loud}
     depends_on: [collector, defender]
     networks: [socnet]
+
+  # CTI worker: deliberately NOT on socnet. It joins the project default network
+  # (egress) so it can reach Groq, and shares ONLY the ./data volume (the file-queue
+  # spine) with the defender. The detonation plane stays fully air-gapped.
+  cti:
+    build:
+      context: .
+      dockerfile: containers/cti/Dockerfile
+    container_name: soc-cti
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - QUEUE_ROOT=/app/data/queue
+      - REPORTS_DIR=/app/data/reports
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+    depends_on: [defender]
+    volumes:
+      - ./data:/app/data
 
 networks:
   socnet:
