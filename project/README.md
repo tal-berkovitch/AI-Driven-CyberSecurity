@@ -23,7 +23,7 @@ attacker ──▶ defender (capture ─▶ features ─▶ DETECTOR ─▶ enri
 
 **Phase 4 — full multi-agent SOC.** Live loop verified end-to-end: isolated
 3-container detonation plane (attacker/collector/defender) → autoencoder detection →
-MITRE enrichment → **AG2 multi-agent** CTI → **ChainLit** dashboard + analyst chat.
+MITRE enrichment → **AG2 multi-agent** CTI → custom **FastAPI/SSE** SOC dashboard.
 The two LLM-facing services (CTI worker, UI) run on the egress side and share only
 the read path of `./data`; the detonation plane stays air-gapped. See the phase
 table in ARCHITECTURE.md §9.
@@ -39,14 +39,14 @@ uv run --extra detect python -m eval.train
 # Bring up the full stack in live-detection mode:
 DEFENDER_MODE=detect ATTACK_MODE=all docker compose up --build
 
-# Then open the SOC console:
+# Then open the SOC dashboard:
 #   http://localhost:8000
-# Live traffic, anomaly alerts (with per-feature evidence), and CTI reports stream
-# in; ask the analyst follow-up questions about the latest alert.
+# Three live panels: traffic feed, analysis & statistics (counters + charts), and an
+# auto-refreshing LLM situation summary.
 ```
 
 Without a `GROQ_API_KEY` everything still runs: CTI falls back to a deterministic
-grounded template and the UI chat reports the LLM is unavailable.
+grounded template and the summary panel renders a deterministic counters-based report.
 
 ### Verify the network is truly isolated
 
@@ -76,6 +76,6 @@ uv run pytest                            # contract + transport round-trip tests
 | `containers/collector` | Dummy DNS/SNMP destination + passive tap |
 | `containers/defender` | Capture → features → detect → enrich → alerts (air-gapped) |
 | `containers/cti` | Egress worker: AG2 multi-agent CTI from alerts → reports |
-| `containers/ui` | Egress ChainLit dashboard + analyst chat (port 8000) |
+| `containers/ui` | Egress FastAPI/SSE SOC dashboard — 3 live panels (port 8000) |
 | `shared/llm.py` | Groq (OpenAI-compatible) access shared by cti + ui |
 | `eval/` | Evaluation harness (metrics, graded attacks, CTI mapping) |

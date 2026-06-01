@@ -36,7 +36,7 @@ Legend: ✅ done & verified · ⚠️ deviation (deliberate, defensible) · 🔜
 |---|---|---|---|
 | 3.1 | Docker internal-only isolated bridge | ✅ | `docker-compose.yaml` |
 | 3.2 | **AG2** (multi-agent workflow) | ✅ | `containers/cti/agents.py` — per-alert Threat-Analyst + Report-Writer group chat (Groq), offline-template fallback |
-| 3.3 | **ChainLit** (UI) | ✅ | `containers/ui/{app,render}.py`, `ui` service in `docker-compose.yaml` (port 8000) |
+| 3.3 | **ChainLit** (UI) | ⚠️✅ | Custom FastAPI/SSE dashboard instead — `containers/ui/{server,dashboard}.py` + `static/`, `ui` service (port 8000). **Deviation D3** below. |
 | 3.4 | **Groq** (LPU inference) | ✅ | `containers/cti/groq_client.py` |
 | 3.5 | **uv** package management | ✅ | `pyproject.toml`, all `uv run --extra …` workflows |
 
@@ -52,7 +52,7 @@ Legend: ✅ done & verified · ⚠️ deviation (deliberate, defensible) · 🔜
 
 | # | Proposal clause | Status | Where / evidence |
 |---|---|---|---|
-| 5.1 | Functional MVP with **multi-agent UI** | ✅ | ChainLit dashboard streams live traffic/alerts/CTI + analyst chat (`containers/ui/`); AG2 multi-agent CTI (`containers/cti/agents.py`) |
+| 5.1 | Functional MVP with **multi-agent UI** | ✅ | FastAPI/SSE dashboard: 3 live panels (traffic / analysis+stats / LLM summary) in `containers/ui/`; AG2 multi-agent CTI (`containers/cti/agents.py`) |
 | 5.2 | Isolated 3-container network | ✅ | §2.1 |
 | 5.3 | AI integration | ✅ | detect → enrich → CTI loop, verified live |
 | 5.4 | **Test Case A** (benign → low error, no FPs) | ✅ | `eval/run_eval.py` FPR@recall; *caveat:* small baseline → a few FPs (grow baseline) |
@@ -70,6 +70,15 @@ performs all proposal-assigned work (feature extraction + the full AI pipeline);
 *capture point* moved, for a correct networking reason.
 *Reversible:* make the defender a routing gateway if the literal inline topology is required.
 See `ARCHITECTURE.md` §2.
+
+### D3 — Custom FastAPI/SSE dashboard instead of ChainLit
+The proposal named ChainLit (§3.3), but ChainLit is a *chat* product — a single
+conversational message stream — and a live SOC view forced into it becomes a flood of chat
+messages, not a dashboard. We substituted a custom **FastAPI + Server-Sent-Events** web app
+(`containers/ui/`) with three bordered live panels (traffic / analysis+stats charts / auto-
+refreshing LLM situation summary). This satisfies the same "multi-agent UI" deliverable
+(§5.1) and is a strictly better fit for a real-time operations board. All UI state is bounded
+(ring buffers + fixed-size summary prompt), so memory and prompt size stay flat over uptime.
 
 ### D2 — Deterministic MITRE retrieval, not embeddings + vector DB
 Mapping uses attribution-weighted token overlap between an alert's top features and a JSON

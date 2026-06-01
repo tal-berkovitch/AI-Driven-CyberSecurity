@@ -21,5 +21,8 @@ models/*
 eval/report/*
 !eval/report/.gitkeep
 
+# Local Claude Code tooling state (plans, settings) — not project code
+.claude/
+
 # Logs / misc
 *.log

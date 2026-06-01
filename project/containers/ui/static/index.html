@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOC Dashboard — DNS/SNMP</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>🛡️ DNS/SNMP SOC Dashboard</h1>
+    <span id="conn" class="badge offline">connecting…</span>
+  </header>
+
+  <main class="grid">
+    <section class="panel" id="traffic-panel">
+      <div class="panel-head">
+        <h2>Live Traffic</h2>
+        <span class="muted" id="cap-count">0 events</span>
+      </div>
+      <div class="feed" id="traffic"></div>
+    </section>
+
+    <section class="panel" id="analysis-panel">
+      <div class="panel-head">
+        <h2>Analysis &amp; Statistics</h2>
+        <span class="muted"><span id="alert-count">0</span> alerts</span>
+      </div>
+
+      <div class="counters">
+        <div class="counter"><span class="num" id="c-captures">0</span><span class="lbl">captures</span></div>
+        <div class="counter"><span class="num" id="c-alerts">0</span><span class="lbl">alerts</span></div>
+        <div class="counter"><span class="num" id="c-dns">0</span><span class="lbl">dns</span></div>
+        <div class="counter"><span class="num" id="c-snmp">0</span><span class="lbl">snmp</span></div>
+      </div>
+
+      <div class="chart-block">
+        <h3>Alerts over time</h3>
+        <div class="bars" id="time-chart"></div>
+      </div>
+      <div class="chart-block">
+        <h3>Top MITRE techniques</h3>
+        <div class="hbars" id="mitre-chart"></div>
+      </div>
+
+      <div class="chart-block">
+        <h3>Recent alerts</h3>
+        <div class="alerts" id="alerts"></div>
+      </div>
+    </section>
+
+    <section class="panel wide" id="summary-panel">
+      <div class="panel-head">
+        <h2>🧠 LLM Situation Summary</h2>
+        <span class="muted" id="summary-age">—</span>
+      </div>
+      <div class="summary" id="summary">Waiting for the first situation summary…</div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

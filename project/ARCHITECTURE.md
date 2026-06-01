@@ -215,13 +215,21 @@ plane (attacker/collector/defender) never gains internet access.
   deterministic path, and `generate_cti` returns `None` (→ offline template) on a
   missing key, a missing `autogen` install, or any error — so AG2 is a presentation/
   orchestration layer, never a hard dependency of the core.
-- **ChainLit** UI (`containers/ui/`): a 5th container on the egress network, port 8000.
-  It tails the shared queue **read-only** and streams live traffic summaries, anomaly
-  flags with per-feature evidence, and the generated CTI reports; it also offers an
-  interactive analyst chat that answers follow-ups via Groq, grounded on the most
-  recent alert's evidence + MITRE cards. Pure formatting lives in `ui/render.py`.
+- **SOC dashboard** (`containers/ui/`, FastAPI + Server-Sent Events): a 5th container on
+  the egress network, port 8000. It tails the shared queue **read-only** and pushes three
+  bordered live panels to the browser — (1) **Live Traffic** (capture feed), (2) **Analysis
+  & Statistics** (counters + alerts-over-time and MITRE-frequency charts + a recent-alerts
+  list expandable to its CTI report), (3) an auto-refreshing **LLM Situation Summary**.
+  All state is **bounded**: `deque(maxlen=…)` ring buffers + small counters, and the queue
+  consumer **seeks to EOF on startup** so the on-disk backlog is never loaded into memory.
+  The summary prompt is built only from the rolling counters + the last K alerts, so it is
+  fixed-size regardless of uptime. Pure state/builders live in `ui/dashboard.py`; the
+  FastAPI shell + SSE in `ui/server.py`; the hand-built panels in `ui/static/`.
+  *(The proposal named ChainLit, but ChainLit is a chat product — a multi-panel SOC board
+  is what the project needs, so we substituted a custom dashboard; same "multi-agent UI"
+  requirement, better fit.)*
 - **Groq** (OpenAI-compatible endpoint, via `shared/llm.py`) for both AG2 and the UI
-  chat; **uv** for the Python environment.
+  situation summary; **uv** for the Python environment.
 
 ---
 
@@ -251,7 +259,8 @@ project/
       main.py     record: features→CSV | detect: score→enrich→alerts     [Phase 1/3]
     cti/          prompts.py, main.py — egress worker                    [Phase 3]
                   agents.py: AG2 multi-agent CTI group chat (egress)     [Phase 4]
-    ui/           app.py (chainlit), render.py — egress dashboard+chat   [Phase 4]
+    ui/           server.py (FastAPI+SSE), dashboard.py, static/ —       [Phase 4.5]
+                  egress 3-panel SOC dashboard (traffic/stats/LLM summary)
   eval/
     scenarios.py  graded labeled synthetic traffic via real extractors  [Phase 2]
     metrics.py    ROC/PR-AUC, FPR@recall, per-attack recall             [Phase 2]
@@ -275,7 +284,7 @@ project/
 | 1 | Benign generators (DNS+SNMP), collector services, capture + feature extraction → baseline CSV. **Proof: real benign feature dataset.** |
 | 2 | `local` AE + `isolation_forest` behind `Detector`; graded attack injectors; eval harness. **Proof: benchmark table — the rigor centerpiece.** |
 | 3 | MITRE KB + vector DB + Groq CTI using per-feature attributions; CTI eval. **Proof: explainable reports + mapping accuracy.** |
-| 4 | ✅ AG2 multi-agent CTI (egress) + ChainLit dashboard & analyst chat (egress, port 8000). **Proof: live multi-agent SOC demo; air-gap preserved.** (Kafka transport deferred — file-queue spine still in use.) |
+| 4 | ✅ AG2 multi-agent CTI (egress) + custom FastAPI/SSE SOC dashboard — 3 live panels: traffic, analysis+stats charts, auto-refreshing LLM summary (egress, port 8000). **Proof: live multi-agent SOC demo; air-gap preserved.** (Kafka transport deferred — file-queue spine still in use.) |
 | 5 | `morpheus` backend (DFP pipeline / Kafka source) once lab GPU available; re-run eval. **Proof: Morpheus results + CPU-vs-GPU throughput.** |
 | 6 | Written report + presentation/demo. |
 

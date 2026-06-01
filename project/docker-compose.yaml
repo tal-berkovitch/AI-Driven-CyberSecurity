@@ -96,6 +96,8 @@ services:
       - QUEUE_ROOT=/app/data/queue
       - GROQ_API_KEY=${GROQ_API_KEY:-}
       - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - SUMMARY_INTERVAL=${SUMMARY_INTERVAL:-25}
+      - SUMMARY_LAST_K=${SUMMARY_LAST_K:-15}
     ports:
       - "${UI_PORT:-8000}:8000"
     depends_on: [defender, cti]
