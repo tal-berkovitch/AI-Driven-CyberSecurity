@@ -149,6 +149,12 @@ def build_summary_prompt(state: DashboardState, last_k: int = 15) -> str:
     return "\n".join(lines)
 
 
+def build_ops_payload(health: dict, llm: dict) -> dict:
+    """Shape the System-panel SSE event from the ops-agent health file + LLM state."""
+    containers = health.get("containers", []) if isinstance(health, dict) else []
+    return {"containers": containers, "health_ts": (health or {}).get("ts"), "llm": dict(llm)}
+
+
 def offline_summary(state: DashboardState) -> str:
     """Deterministic situation report when no LLM is available."""
     st = state.stats()

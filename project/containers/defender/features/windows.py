@@ -69,6 +69,11 @@ class WindowAggregator:
             meta["window_start"] = window_start
             meta["window_seconds"] = self.window_s
             meta["event_count"] = len(evs)
+            # Fraction of this host's packets that are responses. A server (e.g. the
+            # collector) echoing an attack shows ~1.0; the initiating client ~0.0 —
+            # detect mode uses this to avoid double-alerting on both halves of an
+            # exchange (it suppresses response-dominated windows).
+            meta["response_fraction"] = sum(e.is_response for e in evs) / len(evs)
             records.append(
                 FeatureRecord(
                     protocol=proto,

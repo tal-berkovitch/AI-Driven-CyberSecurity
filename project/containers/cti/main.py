@@ -11,7 +11,7 @@ from pathlib import Path
 import shared
 from shared.llm import groq_available
 from shared.schema import Alert
-from shared.transport.file_queue import FileQueueConsumer, FileQueueProducer
+from shared.transport import make_consumer, make_producer
 
 from .agents import generate_cti
 from .prompts import offline_report
@@ -46,16 +46,21 @@ def main() -> None:
     queue_root = os.getenv("QUEUE_ROOT", "/app/data/queue")
     reports_dir = Path(os.getenv("REPORTS_DIR", "/app/data/reports"))
     poll_s = float(os.getenv("POLL_SECONDS", "2"))
+    # Throttle the (token-heavy) AG2 group chat so a loud burst of near-duplicate
+    # alerts doesn't exhaust the Groq quota: at most one LLM report per cooldown;
+    # the rest reuse the deterministic grounded template. 0 disables the throttle.
+    llm_cooldown = float(os.getenv("CTI_LLM_COOLDOWN_SECONDS", "12"))
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    consumer = FileQueueConsumer(queue_root)
-    producer = FileQueueProducer(queue_root)
+    consumer = make_consumer(queue_root, group="cti", live=False)
+    producer = make_producer(queue_root)
     llm_available = groq_available()
     cards_by_id = _load_cards()
     n = 0
+    last_llm = 0.0
 
-    LOG.info("cti worker up; consuming %r (llm=%s) -> %s",
-             ALERTS_TOPIC, "groq+ag2" if llm_available else "offline-template", reports_dir)
+    LOG.info("cti worker up; consuming %r (llm=%s, cooldown=%ss) -> %s", ALERTS_TOPIC,
+             "groq+ag2" if llm_available else "offline-template", llm_cooldown, reports_dir)
     while True:
         for raw in consumer.poll(ALERTS_TOPIC):
             try:
@@ -63,7 +68,10 @@ def main() -> None:
             except (KeyError, ValueError, TypeError) as exc:
                 LOG.warning("skipping malformed alert: %s", exc)
                 continue
-            alert.cti_report = make_report(alert, cards_by_id, llm_available)
+            use_llm = llm_available and (time.time() - last_llm) >= llm_cooldown
+            alert.cti_report = make_report(alert, cards_by_id, use_llm)
+            if use_llm:
+                last_llm = time.time()
             producer.send(CTI_TOPIC, alert.to_dict())
             n += 1
             path = reports_dir / f"{int(alert.record.ts)}_{alert.record.protocol}_{n}.md"

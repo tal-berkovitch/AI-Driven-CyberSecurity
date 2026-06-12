@@ -62,8 +62,15 @@ consume `alerts` and never know which backend produced them. This is what makes
 the home→Morpheus switch free. (Kafka + Morpheus + Triton is also the exact
 accelerated stack the course examples reference.)
 
-> If Kafka feels heavy early on, Phase 0–2 can use a local file/socket queue
-> behind the same producer/consumer interface, then promote to Kafka in Phase 4.
+> **Transport (Phase 4.7).** The streaming spine (`capture`/`alerts`/`cti`) runs over
+> **Apache Kafka (KRaft, single broker)** by default — `TRANSPORT=kafka`, selected by
+> `shared/transport.make_producer/make_consumer` behind the `Producer`/`Consumer`
+> protocol; the file-queue (`TRANSPORT=file`) stays the offline/test fallback. The
+> broker is **dual-homed** on `socnet` + the egress net so both planes share one bus,
+> but `socnet` stays `internal:true` (detonation still has **no internet**) and topics
+> are one-way (detonation publishes; egress consumes). The **control plane** (ops
+> requests/health, model/backend selection) and `model_card.json`/reports stay on the
+> shared `./data` volume. This is the same Kafka spine Morpheus' `KafkaSourceStage` reads.
 
 **Where the packet tap runs (Phase 1 decision).** A Docker bridge is a learning
 switch, so a third container in promiscuous mode cannot passively see unicast
@@ -285,7 +292,7 @@ project/
 | 2 | `local` AE + `isolation_forest` behind `Detector`; graded attack injectors; eval harness. **Proof: benchmark table — the rigor centerpiece.** |
 | 3 | MITRE KB + vector DB + Groq CTI using per-feature attributions; CTI eval. **Proof: explainable reports + mapping accuracy.** |
 | 4 | ✅ AG2 multi-agent CTI (egress) + custom FastAPI/SSE SOC dashboard — 3 live panels: traffic, analysis+stats charts, auto-refreshing LLM summary (egress, port 8000). **Proof: live multi-agent SOC demo; air-gap preserved.** (Kafka transport deferred — file-queue spine still in use.) |
-| 5 | `morpheus` backend (DFP pipeline / Kafka source) once lab GPU available; re-run eval. **Proof: Morpheus results + CPU-vs-GPU throughput.** |
+| 5 | `morpheus` backend — **plug-and-play scaffold ready** (`detect/morpheus.py`, dfencoder-based, import-safe). On the lab GPU box: `eval.train --backends morpheus` + `DETECTOR_BACKEND=morpheus`; no further code. **Proof (next): Morpheus results + CPU-vs-GPU throughput.** |
 | 6 | Written report + presentation/demo. |
 
 **Scope-control guarantee:** if time runs short, stopping after Phase 3 still

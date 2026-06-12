@@ -25,6 +25,29 @@ def test_llm_config_shape_when_available(monkeypatch):
     assert entry["api_key"] == "test-key"
 
 
+def test_model_control_file_takes_precedence(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "CONTROL_DIR", str(tmp_path))
+    monkeypatch.setenv("GROQ_MODEL", "env-model")
+    assert llm.groq_model() == "env-model"               # no control file -> env
+    (tmp_path / "llm_model").write_text("picked-model", encoding="utf-8")
+    assert llm.groq_model() == "picked-model"            # control file wins
+
+
+def test_groq_complete_offline_returns_empty(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    res = llm.groq_complete("sys", "user")
+    assert res["text"] is None and res["status"] is None
+    assert res["error"] == "unavailable" and res["rate"] == {}
+
+
+def test_llm_usage_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm, "CONTROL_DIR", str(tmp_path))
+    assert llm.read_llm_usage() == {}                       # nothing yet
+    llm._write_usage(200, {"used_pct": 42.0, "remaining_tokens": 3480.0, "limit_tokens": 6000.0})
+    u = llm.read_llm_usage()
+    assert u["status"] == 200 and u["used_pct"] == 42.0 and "ts" in u
+
+
 def test_groq_client_shim_delegates(monkeypatch):
     from cti.groq_client import GroqClient
 

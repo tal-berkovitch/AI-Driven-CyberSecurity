@@ -70,7 +70,7 @@ uv run pytest                            # contract + transport round-trip tests
 | Path | Purpose |
 |------|---------|
 | `shared/schema.py` | `FeatureRecord` / `ScoreResult` / `Alert` — the only cross-stage coupling |
-| `shared/transport/` | Pluggable message transport (file queue now, Kafka later) |
+| `shared/transport/` | Pluggable spine: **Apache Kafka** (`TRANSPORT=kafka`, default) or file queue (`file`) |
 | `shared/mitre/` | Curated DNS/SNMP MITRE ATT&CK knowledge base |
 | `containers/attacker` | Benign generator + attack injectors |
 | `containers/collector` | Dummy DNS/SNMP destination + passive tap |

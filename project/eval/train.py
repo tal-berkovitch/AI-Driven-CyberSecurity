@@ -54,27 +54,40 @@ def load_frame(proto: str, source: str) -> tuple[pd.DataFrame, str]:
     return frame, "baseline"
 
 
-def train(proto: str, source: str, out_dir: Path, epochs: int) -> None:
+# Both pluggable backends are trained on the same benign frame so the defender can
+# run either (DETECTOR_BACKEND) and the dashboard can compare them. `morpheus` is the
+# lab-GPU backend (Phase 5) and is not trained here.
+BACKENDS = ("local", "isolation_forest")
+
+
+def train(proto: str, source: str, out_dir: Path, epochs: int, backends) -> None:
     frame, used = load_frame(proto, source)
-    det = make_detector("local", epochs=epochs)
-    det.fit(frame)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{proto}_local.pt"
-    det.save(str(out))
-    print(f"  [{proto}] trained on {len(frame)} rows ({used}); "
-          f"threshold={det.threshold:.5f} -> {out}")
+    for backend in backends:
+        kwargs = {"epochs": epochs} if backend in ("local", "morpheus") else {}
+        det = make_detector(backend, **kwargs)
+        det.fit(frame)
+        out = out_dir / f"{proto}_{backend}.pt"
+        det.save(str(out))
+        detail = (f"n_estimators={det.model.n_estimators}" if backend == "isolation_forest"
+                  else f"threshold={det.threshold:.5f}")
+        print(f"  [{proto}/{backend}] trained on {len(frame)} rows ({used}); {detail} -> {out}")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Train the live AE detector on benign data.")
+    ap = argparse.ArgumentParser(description="Train the live detectors on benign data.")
     ap.add_argument("--source", choices=["baseline", "synthetic"], default="baseline")
     ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--out", default=str(MODELS_DIR))
+    # Default trains the home backends; on the lab GPU box add: --backends morpheus
+    ap.add_argument("--backends", default=",".join(BACKENDS),
+                    help="comma-list of local,isolation_forest,morpheus")
     args = ap.parse_args()
+    backends = [b.strip() for b in args.backends.split(",") if b.strip()]
 
-    print(f"training local autoencoder (source={args.source}) -> {args.out}")
+    print(f"training {', '.join(backends)} (source={args.source}) -> {args.out}")
     for proto in ("dns", "snmp"):
-        train(proto, args.source, Path(args.out), args.epochs)
+        train(proto, args.source, Path(args.out), args.epochs, backends)
     print("done.")
 
 

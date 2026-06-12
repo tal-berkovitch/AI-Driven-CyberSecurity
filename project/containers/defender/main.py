@@ -15,6 +15,7 @@ DETECTOR_BACKEND so the home->Morpheus swap is a config change.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -25,7 +26,7 @@ import pandas as pd
 
 from shared.capture import CaptureEvent
 from shared.schema import Alert, FeatureRecord
-from shared.transport.file_queue import FileQueueConsumer, FileQueueProducer
+from shared.transport import Producer, make_consumer, make_producer
 
 from .baseline import BaselineWriter
 from .features import WindowAggregator
@@ -35,9 +36,14 @@ from .features.snmp import SNMP_FEATURES
 LOG = logging.getLogger("defender")
 
 VALID_BACKENDS = {"local", "isolation_forest", "morpheus"}
+# Backends the dashboard may select via the control file (loadable here).
+CONTROL_BACKENDS = {"local", "isolation_forest"}
 SCHEMAS = {"dns": DNS_FEATURES, "snmp": SNMP_FEATURES}
 CAPTURE_TOPIC = "capture"
 ALERTS_TOPIC = "alerts"
+# A window whose packets are mostly responses is a server echoing the other side
+# of an exchange; alerting on it duplicates the initiator's alert. Suppress it.
+RESPONSE_ALERT_THRESHOLD = float(os.getenv("RESPONSE_ALERT_THRESHOLD", "0.5"))
 
 _running = True
 
@@ -66,16 +72,22 @@ class RecordSink:
 class DetectSink:
     """Score each FeatureRecord; enrich + emit an Alert for anomalies."""
 
-    def __init__(self, detectors: dict, enricher, producer: FileQueueProducer) -> None:
+    def __init__(self, detectors: dict, enricher, producer: Producer) -> None:
         self.detectors = detectors
         self.enricher = enricher
         self.producer = producer
         self.n_alerts = 0
+        self.n_suppressed = 0
 
     def handle(self, records: list[FeatureRecord]) -> None:
         for rec in records:
             det = self.detectors.get(rec.protocol)
             if det is None:
+                continue
+            # Skip the server/response half of an exchange — the initiating client's
+            # window carries the same anomaly and is attributed to the real source.
+            if rec.meta.get("response_fraction", 0.0) >= RESPONSE_ALERT_THRESHOLD:
+                self.n_suppressed += 1
                 continue
             schema = SCHEMAS[rec.protocol]
             frame = pd.DataFrame([{c: rec.features.get(c, 0.0) for c in schema}],
@@ -103,11 +115,108 @@ def _load_detectors(backend: str, models_dir: str) -> dict:
         if not path.exists():
             LOG.warning("no model for %s at %s", proto, path)
             continue
-        det = make_detector(backend)
-        det.load(str(path))
+        try:
+            det = make_detector(backend)
+            det.load(str(path))
+        except Exception as exc:  # noqa: BLE001 — e.g. morpheus model but no dfencoder
+            LOG.warning("could not load %s detector for %s (%s); skipping", backend, proto, exc)
+            continue
         detectors[proto] = det
         LOG.info("loaded %s detector for %s from %s", backend, proto, path)
     return detectors
+
+
+BACKEND_LABELS = {"local": "Autoencoder", "isolation_forest": "Isolation Forest",
+                  "morpheus": "Morpheus DFP"}
+
+
+def _ae_card(det, proto: str) -> dict:
+    feats = list(getattr(getattr(det, "scaler", None), "features", []) or SCHEMAS.get(proto, []))
+    hidden = list(getattr(det, "hidden", []) or [])
+    input_dim = len(feats)
+    # input -> encoder(hidden) -> bottleneck -> decoder(reverse) -> output
+    layers = [input_dim, *hidden, *hidden[-2::-1], input_dim] if hidden else [input_dim]
+    n_params = 0
+    model = getattr(det, "model", None)
+    if model is not None:
+        try:
+            n_params = int(sum(p.numel() for p in model.parameters()))
+        except (AttributeError, TypeError):
+            n_params = 0
+    return {"type": "autoencoder", "input_dim": input_dim, "hidden": hidden,
+            "layers": layers, "threshold": float(getattr(det, "threshold", 0.0)),
+            "n_params": n_params, "features": feats}
+
+
+def _if_card(det, proto: str) -> dict:
+    feats = list(getattr(getattr(det, "scaler", None), "features", []) or SCHEMAS.get(proto, []))
+    m = getattr(det, "model", None)
+    return {"type": "isolation_forest", "input_dim": len(feats),
+            "n_estimators": int(getattr(m, "n_estimators", 0)),
+            "contamination": str(getattr(m, "contamination", "auto")),
+            "max_samples": str(getattr(m, "max_samples", "auto")),
+            "features": feats,
+            "note": "Ensemble of isolation trees — no native per-feature attribution."}
+
+
+def _morpheus_card(det, proto: str) -> dict:
+    # dfencoder is an autoencoder, so it renders with the same network view as `local`.
+    feats = list(getattr(det, "features", []) or SCHEMAS.get(proto, []))
+    hidden = [24, 12, 6]
+    input_dim = len(feats)
+    layers = [input_dim, *hidden, *hidden[-2::-1], input_dim]
+    return {"type": "autoencoder", "input_dim": input_dim, "hidden": hidden, "layers": layers,
+            "threshold": float(getattr(det, "threshold", 0.0)), "n_params": 0, "features": feats,
+            "note": "Morpheus DFP (dfencoder) — per-feature z-score attribution."}
+
+
+def resolve_backend(env_backend: str, control_dir: str) -> str:
+    """Active backend = a valid dashboard selection (control file) else the env.
+
+    The control file is written by the egress ops-agent (on a UI 'apply backend'
+    request); we validate it against CONTROL_BACKENDS so the only egress->defender
+    influence is a known backend label.
+    """
+    try:
+        sel = (Path(control_dir) / "detector_backend").read_text(encoding="utf-8").strip()
+        if sel in CONTROL_BACKENDS:
+            return sel
+    except OSError:
+        pass
+    return env_backend
+
+
+def build_model_card(active_backend: str, models_dir: str) -> dict:
+    """Describe every available detector backend for the dashboard's model panel.
+
+    For each trainable backend we load its saved per-protocol models and emit a
+    type-appropriate card (autoencoder layer shape / IsolationForest config). The
+    `active_backend` is the one actually scoring; `morpheus` is a Phase-5 placeholder.
+    """
+    from .detect import make_detector
+
+    md = Path(models_dir)
+    builders = {"local": ("autoencoder", _ae_card),
+                "isolation_forest": ("isolation_forest", _if_card),
+                "morpheus": ("autoencoder", _morpheus_card)}
+    backends: dict = {}
+    for backend, (btype, builder) in builders.items():
+        models: dict = {}
+        for proto in ("dns", "snmp"):
+            path = md / f"{proto}_{backend}.pt"
+            if not path.exists():
+                continue
+            try:
+                det = make_detector(backend)
+                det.load(str(path))
+                models[proto] = builder(det, proto)
+            except Exception as exc:  # noqa: BLE001 — a bad model must not break the card
+                LOG.warning("model card: %s/%s load failed: %s", backend, proto, exc)
+        backends[backend] = {"type": btype, "label": BACKEND_LABELS[backend],
+                             "available": bool(models), "models": models}
+    if not backends["morpheus"]["available"]:                # dev box: keep the placeholder
+        backends["morpheus"]["note"] = "Not implemented here — train on the lab GPU box (Phase 5)."
+    return {"active_backend": active_backend, "generated_ts": time.time(), "backends": backends}
 
 
 def main() -> None:
@@ -115,7 +224,8 @@ def main() -> None:
         level=os.getenv("LOG_LEVEL", "INFO"),
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
-    backend = os.getenv("DETECTOR_BACKEND", "local")
+    control_dir = os.getenv("CONTROL_DIR", "/app/control")
+    backend = resolve_backend(os.getenv("DETECTOR_BACKEND", "local"), control_dir)
     if backend not in VALID_BACKENDS:
         LOG.warning("unknown DETECTOR_BACKEND=%r (expected one of %s)", backend, VALID_BACKENDS)
 
@@ -130,7 +240,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
-    consumer = FileQueueConsumer(queue_root)
+    consumer = make_consumer(queue_root, group="defender", live=True)
     agg = WindowAggregator(window_s=window_s)
 
     if mode == "detect":
@@ -143,12 +253,32 @@ def main() -> None:
     if mode == "detect":
         from .enrich import MitreEnricher
         sink: RecordSink | DetectSink = DetectSink(
-            detectors, MitreEnricher(), FileQueueProducer(queue_root))
+            detectors, MitreEnricher(), make_producer(queue_root))
+        # Publish a model card to the shared volume for the UI's network view.
+        try:
+            card_path = Path(queue_root).parent / "model_card.json"
+            card = build_model_card(backend, models_dir)
+            card_path.write_text(json.dumps(card), encoding="utf-8")
+            avail = [b for b, v in card["backends"].items() if v["available"]]
+            LOG.info("wrote model card (active=%s, available=%s) -> %s",
+                     backend, avail, card_path)
+        except OSError as exc:
+            LOG.warning("could not write model card: %s", exc)
     else:
         sink = RecordSink(baseline_dir)
 
-    LOG.info("defender up; mode=%s backend=%s window=%ss queue=%s",
-             mode, backend, window_s, queue_root)
+    # Start live: skip whatever is already in the queue so a restart doesn't replay
+    # (and re-alert / re-record) the whole capture backlog. Set SEEK_TO_END=false to
+    # process the existing backlog instead.
+    seek_to_end = os.getenv("SEEK_TO_END", "true").lower() not in ("0", "false", "no")
+    if seek_to_end:
+        skipped = len(consumer.poll(CAPTURE_TOPIC))
+        if skipped:
+            LOG.info("seek-to-end: skipped %d backlog capture events "
+                     "(SEEK_TO_END=false to process them)", skipped)
+
+    LOG.info("defender up; mode=%s backend=%s window=%ss seek_to_end=%s queue=%s",
+             mode, backend, window_s, seek_to_end, queue_root)
 
     last_event_t = time.monotonic()
     while _running:

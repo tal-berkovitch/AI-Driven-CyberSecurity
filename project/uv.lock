@@ -1063,6 +1063,15 @@ wheels = [
 ]
 
 [[package]]
+name = "kafka-python"
+version = "2.3.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/7e/9eb4363e5018b71edf77de3d2fbd687f1e3a55d43101138a5b7f2ca56d97/kafka_python-2.3.2.tar.gz", hash = "sha256:2d2469bcabc2551be7eaf7fb512e1241484d358800f2665b90e7e24fea84259d", size = 357589, upload-time = "2026-06-03T22:46:49.022Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/db/cfe23cfacc9aabeef59e349aa6c2738d195df1d56ccf8c31362abdd68ddb/kafka_python-2.3.2-py2.py3-none-any.whl", hash = "sha256:e8a5e6f2c4ce13a8041669337038d5125e0e09e6d6f0911902ae5939e5b9595e", size = 326623, upload-time = "2026-06-03T22:46:47.417Z" },
+]
+
+[[package]]
 name = "kubernetes"
 version = "36.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3026,6 +3035,9 @@ dev = [
 generate = [
     { name = "dnspython" },
 ]
+kafka = [
+    { name = "kafka-python" },
+]
 ui = [
     { name = "fastapi" },
     { name = "httpx" },
@@ -3040,6 +3052,7 @@ requires-dist = [
     { name = "dnspython", marker = "extra == 'generate'", specifier = ">=2.6" },
     { name = "fastapi", marker = "extra == 'ui'", specifier = ">=0.110" },
     { name = "httpx", marker = "extra == 'ui'", specifier = ">=0.27" },
+    { name = "kafka-python", marker = "extra == 'kafka'", specifier = ">=2.0" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'cti'", specifier = ">=1.0" },
     { name = "openai", marker = "extra == 'ui'", specifier = ">=1.0" },
@@ -3053,7 +3066,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'detect'", specifier = ">=2.2" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'ui'", specifier = ">=0.29" },
 ]
-provides-extras = ["capture", "generate", "detect", "cti", "ui", "dev"]
+provides-extras = ["capture", "generate", "detect", "cti", "ui", "kafka", "dev"]
 
 [[package]]
 name = "starlette"

@@ -26,10 +26,15 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - QUEUE_ROOT=/app/data/queue
       - CAPTURE_IFACE=eth0
+      - TRANSPORT=${TRANSPORT:-kafka}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
     # NET_RAW/NET_ADMIN: scapy opens raw AF_PACKET sockets for the passive tap.
     cap_add: [NET_RAW, NET_ADMIN]
     volumes:
       - ./data:/app/data
+    depends_on:
+      kafka:
+        condition: service_healthy
     networks: [socnet]
 
   defender:
@@ -45,10 +50,20 @@ services:
       - BASELINE_DIR=/app/data/baseline
       - MODELS_DIR=/app/models
       - WINDOW_SECONDS=${WINDOW_SECONDS:-10}
-    depends_on: [collector]
+      # Start live (skip the queue backlog on startup); false = process backlog.
+      - SEEK_TO_END=${SEEK_TO_END:-true}
+      - CONTROL_DIR=/app/control
+      - TRANSPORT=${TRANSPORT:-kafka}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
+    depends_on:
+      collector:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
       - ./models:/app/models   # trained detector loaded in detect mode (read-only use)
+      - ./control:/app/control:ro   # reads the active-backend selection (validated)
     networks: [socnet]
 
   attacker:
@@ -61,7 +76,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # benign (default) | all | comma-list of dns_tunnel,snmp_recon,snmp_amplify
       - ATTACK_MODE=${ATTACK_MODE:-benign}
-      - ATTACK_INTENSITY=${ATTACK_INTENSITY:-loud}
+      # mixed = organic waves, randomized per run (best demo); loud|slow = fixed
+      - ATTACK_INTENSITY=${ATTACK_INTENSITY:-mixed}
     depends_on: [collector, defender]
     networks: [socnet]
 
@@ -78,14 +94,24 @@ services:
       - QUEUE_ROOT=/app/data/queue
       - REPORTS_DIR=/app/data/reports
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
-    depends_on: [defender]
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
+      - CTI_LLM_COOLDOWN_SECONDS=${CTI_LLM_COOLDOWN_SECONDS:-12}
+      - CONTROL_DIR=/app/control
+      - TRANSPORT=${TRANSPORT:-kafka}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
+    depends_on:
+      defender:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
+      - ./control:/app/control:ro   # reads the live-selected LLM model
 
-  # ChainLit SOC UI: also OFF socnet (egress for the analyst chat). Mounts the
-  # shared ./data volume READ-ONLY — it only observes the file-queue spine, never
-  # writes to it and never touches the detonation network. Open http://localhost:8000.
+  # SOC dashboard (FastAPI+SSE): OFF socnet. Mounts ./data READ-ONLY (observes the
+  # file-queue, never tampers) and ./control READ-WRITE (writes the LLM-model choice
+  # + restart requests for the ops-agent). It has NO Docker socket — it stays a
+  # powerless observer + request-poster. Open http://localhost:8000.
   ui:
     build:
       context: .
@@ -94,15 +120,69 @@ services:
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - QUEUE_ROOT=/app/data/queue
+      - CONTROL_DIR=/app/control
       - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.1-8b-instant}
       - SUMMARY_INTERVAL=${SUMMARY_INTERVAL:-25}
       - SUMMARY_LAST_K=${SUMMARY_LAST_K:-15}
+      - TRANSPORT=${TRANSPORT:-kafka}
+      - KAFKA_BOOTSTRAP=${KAFKA_BOOTSTRAP:-kafka:9092}
     ports:
       - "${UI_PORT:-8000}:8000"
-    depends_on: [defender, cti]
+    depends_on:
+      defender:
+        condition: service_started
+      cti:
+        condition: service_started
+      kafka:
+        condition: service_healthy
     volumes:
       - ./data:/app/data:ro
+      - ./control:/app/control
+
+  # Ops-agent: the ONLY container with the Docker socket. Reports container
+  # CPU/RAM/status to ./control/health.json and runs allowlisted restarts requested
+  # by the UI via ./control. Off socnet; needs no egress.
+  ops:
+    build:
+      context: .
+      dockerfile: containers/ops/Dockerfile
+    container_name: soc-ops
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CONTROL_DIR=/app/control
+    volumes:
+      - ./control:/app/control
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # Kafka transport spine (Apache Kafka, KRaft — no ZooKeeper). DUAL-HOMED on socnet
+  # + default so both planes share one bus: the detonation plane (socnet, internal)
+  # publishes capture/alerts; the egress plane (default) consumes. The broker has no
+  # special privilege; detonation containers still have NO internet (socnet stays
+  # internal). Pipeline topics are one-way; the control plane stays file-based.
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: soc-kafka
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 25s
+    networks: [socnet, default]
 
 networks:
   socnet:

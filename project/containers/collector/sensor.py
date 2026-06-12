@@ -15,7 +15,7 @@ import logging
 import os
 
 from shared.capture import CaptureEvent
-from shared.transport.file_queue import FileQueueProducer
+from shared.transport import make_producer
 
 # Quiet scapy's import-time IPv6/route warnings before importing it; these scapy
 # imports must follow the log-level setup, hence the E402 suppressions.
@@ -120,6 +120,7 @@ def _parse_snmp(pkt) -> CaptureEvent | None:  # noqa: ANN001
         src=pkt[IP].src,
         dst=pkt[IP].dst,
         size=len(bytes(udp.payload)),
+        is_response=(pdu_name == "response"),  # GetResponse PDU = the agent's reply
         pdu=pdu_name,
         community=community,
         oids=oids,
@@ -153,7 +154,7 @@ def main() -> None:
     )
     queue_root = os.getenv("QUEUE_ROOT", "/app/data/queue")
     iface = os.getenv("CAPTURE_IFACE", "eth0")
-    producer = FileQueueProducer(queue_root)
+    producer = make_producer(queue_root)
     n = 0
 
     def handle(pkt) -> None:  # noqa: ANN001

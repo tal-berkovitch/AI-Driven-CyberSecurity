@@ -39,8 +39,9 @@ def make_detector(backend: str | None = None, **kwargs) -> Detector:
 
         return LocalAutoencoderDetector(**kwargs)
     if backend == "morpheus":
-        raise NotImplementedError(
-            "morpheus backend lands in Phase 5 once the lab GPU box is available; "
-            "it reads the same FeatureRecord contract over the Kafka spine."
-        )
+        # Import-safe scaffold: constructs fine without Morpheus installed; only
+        # fit/score/load raise (with install hints) if dfencoder is absent.
+        from .morpheus import MorpheusDetector
+
+        return MorpheusDetector(**kwargs)
     raise ValueError(f"unknown DETECTOR_BACKEND={backend!r}; expected one of {VALID_BACKENDS}")

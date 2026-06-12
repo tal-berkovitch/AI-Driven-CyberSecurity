@@ -9,8 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         snmpd \
     && rm -rf /var/lib/apt/lists/*
 
-# scapy for the passive packet tap (raw AF_PACKET sockets, no libpcap needed).
-RUN pip install --no-cache-dir "scapy>=2.5"
+# scapy for the passive packet tap (raw AF_PACKET sockets, no libpcap needed);
+# kafka-python for the Kafka transport spine (TRANSPORT=kafka).
+RUN pip install --no-cache-dir "scapy>=2.5" "kafka-python>=2.0"
 
 WORKDIR /app
 

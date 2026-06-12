@@ -90,9 +90,11 @@ def test_save_load_roundtrip(tmp_path):
     assert np.allclose(before, after)
 
 
-def test_morpheus_backend_not_yet_available():
-    with pytest.raises(NotImplementedError):
-        make_detector("morpheus")
+def test_morpheus_backend_is_import_safe_scaffold():
+    # Phase-5 scaffold: constructs without Morpheus/dfencoder installed (so the
+    # defender image is unaffected); see tests/test_morpheus.py for the use-path error.
+    det = make_detector("morpheus")
+    assert det.__class__.__name__ == "MorpheusDetector"
 
 
 # --- metrics -----------------------------------------------------------------

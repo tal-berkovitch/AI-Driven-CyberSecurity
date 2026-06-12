@@ -45,7 +45,7 @@ _WRITER_SYS = (
     "exactly: TERMINATE"
 )
 
-_MAX_ROUND = 6
+_MAX_ROUND = 4  # keep the group chat short — bounds tokens/latency per report
 
 
 def _strip_terminate(text: str) -> str:

@@ -6,7 +6,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app
 
-RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "openai>=1.0"
+RUN pip install --no-cache-dir "fastapi>=0.110" "uvicorn[standard]>=0.29" "openai>=1.0" "kafka-python>=2.0"
 
 WORKDIR /app
 
