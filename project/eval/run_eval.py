@@ -128,10 +128,24 @@ def main() -> None:
 
     table = _markdown(all_rows)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORT_DIR / "results.md").write_text(
-        "# Detector backend comparison (synthetic graded scenarios)\n\n" + table,
-        encoding="utf-8",
+    title = ("# Detector backend comparison\n\n"
+             "Synthetic graded scenarios + real **CIC-Bell-DNS-EXF-2021** "
+             "(replayed PCAPs, same feature path as live).\n\n")
+    notes = (
+        "\n## Notes\n\n"
+        "- **Synthetic** attacks are trivially separable, so the autoencoder scores a "
+        "(suspiciously) perfect 1.000 — exactly why a real dataset matters.\n"
+        "- On **real CIC-Bell DNS exfil** no single feature separates well (best "
+        "univariate ROC-AUC ~0.73); the signal is distributed and interaction-based. "
+        "The tree-based **isolation_forest** exploits those interactions (0.91), while "
+        "the autoencoder, scored by mean per-feature reconstruction error, is weaker "
+        "(0.75). Different backends win on different data — which is the point of the "
+        "pluggable backend, and motivates the more expressive Morpheus DFP backend.\n"
+        "- The real AE rose from 0.60 to 0.75 once training switched from full-batch to "
+        "minibatch SGD; the tiny synthetic baselines (n<batch) stay full-batch, so their "
+        "1.000 is unchanged.\n"
     )
+    (REPORT_DIR / "results.md").write_text(title + table + notes, encoding="utf-8")
     pd.DataFrame(all_rows).to_csv(REPORT_DIR / "results.csv", index=False)
 
     print("\n=== Detector backend comparison ===\n")

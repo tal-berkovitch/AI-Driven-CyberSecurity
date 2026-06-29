@@ -62,6 +62,44 @@ def _rr_list(field) -> list:  # noqa: ANN001
         return [field]
 
 
+def _decode_raw_question(buf: bytes) -> tuple[str | None, int | None]:
+    """Walk DNS wire-format labels out of a raw question blob.
+
+    DNS tunneling/exfil tools pack long base32/base64 payloads into the qname;
+    scapy often can't dissect these into a ``DNSQR`` and leaves the question as a
+    ``Raw`` blob. The name is still there in wire format (``<len><label>...\\x00``
+    then qtype/qclass), so we decode it ourselves rather than drop the packet —
+    without this, every real exfil query would be silently lost.
+    """
+    labels: list[str] = []
+    i, n = 0, len(buf)
+    while i < n:
+        length = buf[i]
+        if length == 0:  # end of name
+            i += 1
+            break
+        if length & 0xC0:  # compression pointer/reserved — can't follow in a blob
+            return (".".join(labels) or None), None
+        i += 1
+        labels.append(buf[i:i + length].decode("ascii", "replace"))
+        i += length  # tolerates a label that runs off the end (truncated capture)
+    qname = ".".join(labels) or None
+    qtype = int.from_bytes(buf[i:i + 2], "big") if i + 2 <= n and qname else None
+    return qname, qtype
+
+
+def _question_fields(rr) -> tuple[str | None, str | None]:  # noqa: ANN001
+    """(qname, qtype) from a question record — a real DNSQR or a Raw exfil blob."""
+    qname = getattr(rr, "qname", None)
+    if qname is not None:
+        return _decode(qname), _QTYPES.get(int(rr.qtype), str(rr.qtype))
+    load = getattr(rr, "load", None)
+    if isinstance(load, (bytes, bytearray)):
+        name, qt = _decode_raw_question(bytes(load))
+        return name, (_QTYPES.get(qt, str(qt)) if qt is not None else None)
+    return None, None
+
+
 def _parse_dns(pkt) -> CaptureEvent | None:  # noqa: ANN001
     dns = pkt[DNS]
     udp = pkt[UDP]
@@ -69,9 +107,7 @@ def _parse_dns(pkt) -> CaptureEvent | None:  # noqa: ANN001
     qname = qtype = None
     questions = _rr_list(dns.qd)
     if questions:
-        q0 = questions[0]
-        qname = _decode(q0.qname)
-        qtype = _QTYPES.get(int(q0.qtype), str(q0.qtype))
+        qname, qtype = _question_fields(questions[0])
     answer_types: list[str] = []
     for rr in _rr_list(dns.an):
         try:
@@ -87,8 +123,8 @@ def _parse_dns(pkt) -> CaptureEvent | None:  # noqa: ANN001
         is_response=is_resp,
         qname=qname,
         qtype=qtype,
-        rcode=_RCODES.get(int(dns.rcode), str(dns.rcode)) if is_resp else None,
-        ancount=int(dns.ancount),
+        rcode=_RCODES.get(int(dns.rcode or 0), str(dns.rcode)) if is_resp else None,
+        ancount=int(dns.ancount or 0),
         answer_types=answer_types,
     )
 
