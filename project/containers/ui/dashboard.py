@@ -28,7 +28,7 @@ def _top_features(attrs: dict[str, float], k: int = 5) -> list[tuple[str, float]
 def traffic_row(event: dict[str, Any]) -> dict[str, Any]:
     """Compact one capture event for the live-traffic feed."""
     proto = event.get("proto", "?")
-    detail = event.get("qname") or (event.get("oids") or [None])[0] or ""
+    detail = event.get("qname") or ""
     return {
         "ts": event.get("ts", 0.0),
         "proto": proto,
@@ -86,8 +86,11 @@ class DashboardState:
         self.alerts.append(summary)
         self.total_alerts += 1
         self.by_proto[summary["proto"]] += 1
-        for t in summary["techniques"]:
-            self.technique_freq[t] += 1
+        # Count the PRIMARY (top-ranked) technique per alert — its classification —
+        # so the frequency chart reflects the attack mix. Counting every loosely
+        # related candidate would flatten every alert into the same DNS-exfil family.
+        if summary["techniques"]:
+            self.technique_freq[summary["techniques"][0]] += 1
         self._roll_buckets()
         self.alert_buckets[-1] += 1
         return summary

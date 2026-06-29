@@ -1,10 +1,10 @@
-"""DNS tunneling / exfiltration injector (MITRE T1071.004, T1048.003).
+"""DNS tunneling injector (MITRE T1572 — Protocol Tunneling).
 
-Encodes random payload into long, high-entropy subdomain labels under a tunnel
-domain and queries them (TXT/NULL-heavy), the canonical DNS-tunneling fingerprint.
-Runs as an organic campaign (waves + quiet gaps, entropy-seeded) so the live demo
-varies every run; per-wave intensity toggles a noisy high-rate channel vs a
-low-and-slow one that rate-based detection misses but content features still catch.
+The tunnelling fingerprint is **fan-out**: a chatty, interactive channel that
+sprays many distinct high-entropy subdomains under one tunnel domain (A/CNAME
+lookups). High query volume + many unique subdomains per domain is what separates
+it from the bulk-exfil and C2-beacon injectors. Runs as an organic campaign
+(waves + quiet gaps) so the live demo varies every run.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ TUNNEL_BASE = "t.tunnel.example.local"
 
 
 def _label(rng) -> str:
-    return "".join(rng.choice(_B32) for _ in range(rng.randint(28, 45)))
+    return "".join(rng.choice(_B32) for _ in range(rng.randint(12, 18)))
 
 
 def run(server_ip: str, stop_event: threading.Event) -> None:
@@ -33,16 +33,16 @@ def run(server_ip: str, stop_event: threading.Event) -> None:
     resolver.lifetime = 3.0
 
     def burst(intensity: str) -> None:
-        n = rng.randint(12, 25) if intensity == "loud" else rng.randint(1, 3)
+        # Many distinct subdomains per wave -> high unique_subdomains_per_domain.
+        n = rng.randint(15, 30) if intensity == "loud" else rng.randint(2, 4)
         for _ in range(n):
             qname = f"{_label(rng)}.{TUNNEL_BASE}"
-            qtype = rng.choice(["TXT", "TXT", "NULL", "A"])
             try:
-                resolver.resolve(qname, qtype)
+                resolver.resolve(qname, rng.choice(["A", "A", "CNAME"]))
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
                     dns.resolver.NoNameservers, dns.exception.Timeout):
                 pass  # the query packet on the wire is the attack; answers are irrelevant
         stop_event.wait(rng.uniform(0.2, 0.8) if intensity == "loud" else rng.uniform(4.0, 9.0))
 
-    LOG.warning("DNS tunneling injector active (organic campaign)")
+    LOG.warning("DNS tunneling injector active (fan-out subdomains, organic campaign)")
     run_campaign(rng, stop_event, burst)

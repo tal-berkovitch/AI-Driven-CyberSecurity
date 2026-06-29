@@ -43,7 +43,7 @@ services:
       dockerfile: containers/defender/Dockerfile
     container_name: soc-defender
     environment:
-      - DETECTOR_BACKEND=${DETECTOR_BACKEND:-local}
+      - DETECTOR_BACKEND=${DETECTOR_BACKEND:-charae}
       - DEFENDER_MODE=${DEFENDER_MODE:-record}   # record (build dataset) | detect (live scoring)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - QUEUE_ROOT=/app/data/queue
@@ -74,7 +74,7 @@ services:
     environment:
       - COLLECTOR_HOST=collector
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # benign (default) | all | comma-list of dns_tunnel
+      # benign (default) | all | comma-list of dns_tunnel,dns_exfil,dns_c2
       - ATTACK_MODE=${ATTACK_MODE:-benign}
       # mixed = organic waves, randomized per run (best demo); loud|slow = fixed
       - ATTACK_INTENSITY=${ATTACK_INTENSITY:-mixed}

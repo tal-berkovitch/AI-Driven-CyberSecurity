@@ -36,7 +36,7 @@
 
       <section class="panel" id="model-panel">
         <div class="panel-head">
-          <h2>🕸️ Detector Model — Autoencoder</h2>
+          <h2 id="model-title">🕸️ Detector Model</h2>
           <span class="sub" id="model-sub">waiting for model…</span>
         </div>
         <div class="backend-switch" id="backend-switch"></div>
@@ -54,9 +54,8 @@
       </div>
 
       <div class="counters">
-        <div class="counter"><span class="num" id="c-captures">0</span><span class="lbl">captures</span></div>
+        <div class="counter"><span class="num" id="c-captures">0</span><span class="lbl">DNS captures</span></div>
         <div class="counter"><span class="num" id="c-alerts">0</span><span class="lbl">alerts</span></div>
-        <div class="counter"><span class="num" id="c-dns">0</span><span class="lbl">dns</span></div>
       </div>
 
       <div class="chart-block">
@@ -97,7 +96,7 @@
             <span class="chip" id="llm-status">—</span>
           </div>
           <div class="sys-row">
-            <span class="k">token budget</span>
+            <span class="k">token usage</span>
             <span class="track"><span class="fill" id="llm-token-fill"></span></span>
             <span class="n" id="llm-token-pct">—</span>
           </div>

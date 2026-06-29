@@ -22,7 +22,7 @@ REPORTED = {"soc-collector", "soc-defender", "soc-attacker", "soc-cti", "soc-ui"
 # ...but only these may be restarted (NOT the broker or the agent itself — restarting
 # Kafka would disrupt the whole spine).
 RESTARTABLE = {"soc-collector", "soc-defender", "soc-attacker", "soc-cti", "soc-ui"}
-APPLY_BACKENDS = {"local", "isolation_forest"}
+APPLY_BACKENDS = {"charae", "isolation_forest"}
 
 
 def _cpu_pct(stats: dict) -> float:

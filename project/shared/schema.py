@@ -2,7 +2,7 @@
 
 These three types are the *only* coupling between stages. As long as the feature
 extractor emits ``FeatureRecord`` and the detector emits ``ScoreResult``, the
-detection backend (local autoencoder / Isolation Forest / Morpheus DFP) can be
+detection backend (char-embedding autoencoder / Isolation Forest / Morpheus DFP) can be
 swapped with zero downstream changes.
 
 ``FeatureRecord.features`` is intentionally a flat ``{str: float}`` mapping so it

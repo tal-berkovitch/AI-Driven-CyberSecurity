@@ -34,9 +34,9 @@ from .features.dns import DNS_FEATURES
 
 LOG = logging.getLogger("defender")
 
-VALID_BACKENDS = {"local", "charae", "isolation_forest", "morpheus"}
+VALID_BACKENDS = {"charae", "isolation_forest", "morpheus"}
 # Backends the dashboard may select via the control file (loadable here).
-CONTROL_BACKENDS = {"local", "charae", "isolation_forest"}
+CONTROL_BACKENDS = {"charae", "isolation_forest"}
 SCHEMAS = {"dns": DNS_FEATURES}
 CAPTURE_TOPIC = "capture"
 ALERTS_TOPIC = "alerts"
@@ -131,26 +131,8 @@ def _load_detectors(backend: str, models_dir: str) -> dict:
     return detectors
 
 
-BACKEND_LABELS = {"local": "Autoencoder", "charae": "Char-Embedding AE",
+BACKEND_LABELS = {"charae": "Char-Embedding AE",
                   "isolation_forest": "Isolation Forest", "morpheus": "Morpheus DFP"}
-
-
-def _ae_card(det, proto: str) -> dict:
-    feats = list(getattr(getattr(det, "scaler", None), "features", []) or SCHEMAS.get(proto, []))
-    hidden = list(getattr(det, "hidden", []) or [])
-    input_dim = len(feats)
-    # input -> encoder(hidden) -> bottleneck -> decoder(reverse) -> output
-    layers = [input_dim, *hidden, *hidden[-2::-1], input_dim] if hidden else [input_dim]
-    n_params = 0
-    model = getattr(det, "model", None)
-    if model is not None:
-        try:
-            n_params = int(sum(p.numel() for p in model.parameters()))
-        except (AttributeError, TypeError):
-            n_params = 0
-    return {"type": "autoencoder", "input_dim": input_dim, "hidden": hidden,
-            "layers": layers, "threshold": float(getattr(det, "threshold", 0.0)),
-            "n_params": n_params, "features": feats}
 
 
 def _charae_card(det, proto: str) -> dict:
@@ -170,6 +152,7 @@ def _charae_card(det, proto: str) -> dict:
             "layers": layers, "threshold": float(getattr(det, "threshold", 0.0)),
             "n_params": n_params, "vocab_size": vocab_size,
             "features": ["query_name_length", "subdomain_entropy", "encoded_labels",
+                         "txt_record_count", "unique_subdomains_per_domain",
                          "qname_reconstruction_error"],
             "note": "Character-embedding GRU sequence autoencoder — scores qname strings "
                     "(lexical), trained on benign qnames only. Catches high-entropy DNS exfil."}
@@ -187,7 +170,7 @@ def _if_card(det, proto: str) -> dict:
 
 
 def _morpheus_card(det, proto: str) -> dict:
-    # dfencoder is an autoencoder, so it renders with the same network view as `local`.
+    # dfencoder is an autoencoder, so it renders with the same network view as `charae`.
     feats = list(getattr(det, "features", []) or SCHEMAS.get(proto, []))
     hidden = [24, 12, 6]
     input_dim = len(feats)
@@ -223,8 +206,7 @@ def build_model_card(active_backend: str, models_dir: str) -> dict:
     from .detect import make_detector
 
     md = Path(models_dir)
-    builders = {"local": ("autoencoder", _ae_card),
-                "charae": ("autoencoder", _charae_card),
+    builders = {"charae": ("autoencoder", _charae_card),
                 "isolation_forest": ("isolation_forest", _if_card),
                 "morpheus": ("autoencoder", _morpheus_card)}
     backends: dict = {}
@@ -253,7 +235,7 @@ def main() -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
     control_dir = os.getenv("CONTROL_DIR", "/app/control")
-    backend = resolve_backend(os.getenv("DETECTOR_BACKEND", "local"), control_dir)
+    backend = resolve_backend(os.getenv("DETECTOR_BACKEND", "charae"), control_dir)
     if backend not in VALID_BACKENDS:
         LOG.warning("unknown DETECTOR_BACKEND=%r (expected one of %s)", backend, VALID_BACKENDS)
 

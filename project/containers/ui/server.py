@@ -52,7 +52,7 @@ CAPTURE_TOPIC = "capture"
 CTI_TOPIC = "cti"
 # Containers the UI may ask the ops-agent to restart (not the ops-agent itself).
 RESTART_TARGETS = {"soc-collector", "soc-defender", "soc-attacker", "soc-cti", "soc-ui"}
-APPLY_BACKENDS = {"local", "isolation_forest"}
+APPLY_BACKENDS = {"charae", "isolation_forest"}
 
 _SUMMARY_SYSTEM = (
     "You are a senior SOC analyst writing a live situation summary. Using ONLY the state "

@@ -11,8 +11,8 @@
 Three principles drive every decision below:
 
 1. **Swappable detection backend.** The anomaly detector is hidden behind one
-   interface. The "home" backend (local autoencoder, CPU/local GPU) and the
-   "lab" backend (NVIDIA Morpheus DFP on a lab GPU box) are interchangeable via
+   interface. The "home" backends (char-embedding autoencoder + Isolation Forest,
+   CPU) and the "lab" backend (NVIDIA Morpheus DFP on a lab GPU box) interchange via
    a single config flag. *No downstream code changes when switching.*
 2. **Stable data contracts.** Every stage communicates through fixed schemas
    (`FeatureRecord`, `ScoreResult`, `Alert`). The feature schema is designed to
@@ -126,11 +126,11 @@ Backends (selected by `DETECTOR_BACKEND` env var):
 
 | Backend            | Class                       | Role                                   |
 |--------------------|-----------------------------|----------------------------------------|
-| `local`            | `LocalAutoencoderDetector`  | Home pipeline (PyTorch, CPU/local GPU) |
-| `isolation_forest` | `IsolationForestDetector`   | **Evaluation baseline to beat**        |
+| `charae`           | `CharAEDetector`            | **Home headline — char-embedding AE (lexical), ROC 1.000 on CIC-Bell** |
+| `isolation_forest` | `IsolationForestDetector`   | Home behavioral complement (window features) |
 | `morpheus`         | `MorpheusDetector`          | Lab GPU pipeline (Morpheus DFP)        |
 
-**Key alignment:** the local autoencoder mirrors Morpheus `dfencoder`'s
+**Key alignment:** the autoencoder backends mirror Morpheus `dfencoder`'s
 per-feature loss, so `feature_attributions` (the explainability signal feeding
 the LLM) is identical across backends. Evaluation rigor and LLM explainability
 share one mechanism.
@@ -196,8 +196,9 @@ This is the centerpiece that answers the lecturer's "robust evaluation" concern.
   evaluation from being trivially separable (see `eval/stress_charae.py`).
 
 **Detection metrics** — ROC-AUC, PR-AUC, **FPR at fixed recall**, per-attack
-recall, detection latency. Reported **for every backend** (local AE vs
-Isolation Forest vs Morpheus AE) → a single comparison table.
+recall, detection latency. Reported **per backend** (char-embedding AE vs
+Isolation Forest) → a comparison table, with the char-AE's per-query lexical
+result (ROC 1.000 on real CIC-Bell) as the headline.
 
 **CTI metrics** — MITRE mapping **top-1 / top-k accuracy** vs ground truth;
 retrieval hit-rate (reported separately from generation quality); report
@@ -272,7 +273,8 @@ project/
     metrics.py    ROC/PR-AUC, FPR@recall, per-attack recall             [Phase 2]
     run_eval.py   benchmark all backends -> report/results.{md,csv}     [Phase 2]
     datasets/cic_bell.py  CIC-Bell-DNS-EXF-2021 PCAP-replay adapter      [Phase 2]
-    train.py      fit AE on benign baseline -> models/{proto}_local.pt   [Phase 3]
+    train.py      fit detectors on benign -> models/dns_{charae,isolation_forest}.pt [Phase 3]
+    charae.py     train char-embedding AE on qname corpus -> dns_charae.pt [Phase 2]
     cti_eval.py   MITRE mapping top-1/top-k accuracy                     [Phase 3]
   data/
     queue/  baseline/  eval/  real/  reports/   # spine; CSVs; datasets; CTI reports

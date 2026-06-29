@@ -3,9 +3,9 @@
     uv run --extra detect python -m eval.train               # from data/baseline/*.csv
     uv run --extra detect python -m eval.train --source synthetic   # reproducible fallback
 
-The defender (DEFENDER_MODE=detect) loads models/{proto}_local.pt at runtime. Train
-on *captured-live* benign for the deployed model (distribution match with what it
-scores live); synthetic benign is a reproducible fallback for tests/demos.
+The defender (DEFENDER_MODE=detect) loads models/dns_{charae,isolation_forest}.pt at
+runtime. Train on *captured-live* benign for the deployed model (distribution match
+with what it scores live); synthetic benign is a reproducible fallback for tests/demos.
 """
 
 from __future__ import annotations
@@ -52,12 +52,12 @@ def load_frame(proto: str, source: str) -> tuple[pd.DataFrame, str]:
     return frame, "baseline"
 
 
-# Numeric (window-aggregate) backends trained on the same benign frame so the
-# defender can run either (DETECTOR_BACKEND) and the dashboard can compare them.
-# `morpheus` is the lab-GPU backend (Phase 5) and is not trained here. `charae`
-# (the char-embedding AE) is lexical — it trains on qname *strings*, so it is
-# handled separately in train_charae() rather than on the numeric frame.
-BACKENDS = ("local", "isolation_forest")
+# Numeric (window-aggregate) backend trained on the benign frame so the defender
+# can run it (DETECTOR_BACKEND=isolation_forest) and the dashboard can compare it
+# with the char-AE. `morpheus` is the lab-GPU backend (Phase 5) and is not trained
+# here. `charae` (the char-embedding AE) is lexical — it trains on qname *strings*,
+# so it is handled separately in train_charae() rather than on the numeric frame.
+BACKENDS = ("isolation_forest",)
 
 
 def train_charae(out_dir: Path, epochs: int) -> None:
@@ -68,7 +68,7 @@ def train_charae(out_dir: Path, epochs: int) -> None:
     ``python -m eval.datasets.qname_cache``).
     """
     from defender.detect.char_ae import CharAEDetector
-    from eval.datasets.qname_cache import load_cache
+    from eval.datasets.qname_cache import load_cache, synthetic_reverse_dns
 
     try:
         df = load_cache().drop_duplicates("qname")
@@ -76,7 +76,10 @@ def train_charae(out_dir: Path, epochs: int) -> None:
         print("  [dns/charae] qname cache missing -> skipping "
               "(build it with `python -m eval.datasets.qname_cache`)")
         return
-    benign = df[df.label == "benign"][["qname"]]
+    # Mix in reverse-DNS (PTR) names so the model treats in-addr.arpa as normal
+    # (CIC-Bell is forward-domain-only -> reverse lookups would false-positive).
+    benign_names = df[df.label == "benign"]["qname"].tolist() + synthetic_reverse_dns()
+    benign = pd.DataFrame({"qname": benign_names})
     out_dir.mkdir(parents=True, exist_ok=True)
     det = CharAEDetector(epochs=epochs)
     det.fit(benign)
@@ -90,7 +93,7 @@ def train(proto: str, source: str, out_dir: Path, epochs: int, backends) -> None
     frame, used = load_frame(proto, source)
     out_dir.mkdir(parents=True, exist_ok=True)
     for backend in backends:
-        kwargs = {"epochs": epochs} if backend in ("local", "morpheus") else {}
+        kwargs = {"epochs": epochs} if backend == "morpheus" else {}
         det = make_detector(backend, **kwargs)
         det.fit(frame)
         out = out_dir / f"{proto}_{backend}.pt"
@@ -107,7 +110,7 @@ def main() -> None:
     ap.add_argument("--out", default=str(MODELS_DIR))
     # Default trains the home backends; on the lab GPU box add: --backends morpheus
     ap.add_argument("--backends", default=",".join((*BACKENDS, "charae")),
-                    help="comma-list of local,charae,isolation_forest,morpheus")
+                    help="comma-list of charae,isolation_forest,morpheus")
     ap.add_argument("--charae-epochs", type=int, default=25)
     args = ap.parse_args()
     backends = [b.strip() for b in args.backends.split(",") if b.strip()]

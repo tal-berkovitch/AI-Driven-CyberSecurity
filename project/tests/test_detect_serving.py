@@ -24,7 +24,7 @@ def _frame(records):
 
 
 def test_detect_sink_emits_enriched_alerts(tmp_path):
-    det = make_detector("local")
+    det = make_detector("isolation_forest")
     det.fit(_frame(scenarios.benign_dns(140, seed=10)))
 
     sink = DetectSink({"dns": det}, MitreEnricher(), FileQueueProducer(tmp_path))
@@ -47,7 +47,7 @@ def test_detect_sink_ignores_protocol_without_model(tmp_path):
 
 
 def test_detect_sink_suppresses_response_dominated_windows(tmp_path):
-    det = make_detector("local")
+    det = make_detector("isolation_forest")
     det.fit(_frame(scenarios.benign_dns(140, seed=30)))
     sink = DetectSink({"dns": det}, MitreEnricher(), FileQueueProducer(tmp_path))
 
@@ -64,20 +64,23 @@ def test_detect_sink_suppresses_response_dominated_windows(tmp_path):
 def test_build_model_card_multi_backend(tmp_path):
     from defender.main import build_model_card
 
-    frame = _frame(scenarios.benign_dns(120, seed=40))
-    for backend in ("local", "isolation_forest"):
-        det = make_detector(backend)
-        det.fit(frame)
-        det.save(str(tmp_path / f"dns_{backend}.pt"))
+    # char-AE trains on qname strings; Isolation Forest on the numeric window frame.
+    charae = make_detector("charae", epochs=5)
+    charae.fit(pd.DataFrame({"qname": [f"{h}.example.com" for h in
+               ("www", "api", "mail", "db", "cdn", "ns", "shop", "login")] * 6}))
+    charae.save(str(tmp_path / "dns_charae.pt"))
+    iso = make_detector("isolation_forest")
+    iso.fit(_frame(scenarios.benign_dns(120, seed=40)))
+    iso.save(str(tmp_path / "dns_isolation_forest.pt"))
 
-    card = build_model_card("local", str(tmp_path))
-    assert card["active_backend"] == "local"
+    card = build_model_card("charae", str(tmp_path))
+    assert card["active_backend"] == "charae"
     b = card["backends"]
-    # autoencoder card carries the real layer shape + bottleneck
-    ae = b["local"]["models"]["dns"]
-    assert b["local"]["available"] and ae["type"] == "autoencoder"
-    assert ae["layers"][0] == len(DNS_FEATURES) and min(ae["layers"]) == 6
-    assert ae["n_params"] > 0
+    # char-embedding AE card carries the funnel layer shape + latent bottleneck
+    ae = b["charae"]["models"]["dns"]
+    assert b["charae"]["available"] and ae["type"] == "autoencoder"
+    assert min(ae["layers"]) == 16 and ae["n_params"] > 0      # LATENT bottleneck
+    assert ae["vocab_size"] > 2
     # isolation forest card carries its config
     iff = b["isolation_forest"]["models"]["dns"]
     assert b["isolation_forest"]["available"] and iff["type"] == "isolation_forest"
@@ -90,10 +93,10 @@ def test_resolve_backend_prefers_valid_control_file(tmp_path):
     from defender.main import resolve_backend
 
     # no control file -> env
-    assert resolve_backend("local", str(tmp_path)) == "local"
+    assert resolve_backend("charae", str(tmp_path)) == "charae"
     # valid selection wins
     (tmp_path / "detector_backend").write_text("isolation_forest", encoding="utf-8")
-    assert resolve_backend("local", str(tmp_path)) == "isolation_forest"
+    assert resolve_backend("charae", str(tmp_path)) == "isolation_forest"
     # junk / disallowed selection is ignored -> env
     (tmp_path / "detector_backend").write_text("nonsense", encoding="utf-8")
-    assert resolve_backend("local", str(tmp_path)) == "local"
+    assert resolve_backend("charae", str(tmp_path)) == "charae"

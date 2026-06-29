@@ -53,10 +53,32 @@ def test_scores_exfil_above_benign(fitted):
 
 def test_attribution_uses_lexical_keys_for_mitre(fitted):
     res = fitted.score(_window_frame(_EXFIL))[0]
-    assert {"query_name_length", "subdomain_entropy", "encoded_labels"} <= set(
-        res.feature_attributions)
-    # the worst qname is long -> its length attribution dominates
-    assert res.feature_attributions["query_name_length"] > 20
+    attr = res.feature_attributions
+    assert {"query_name_length", "subdomain_entropy", "encoded_labels"} <= set(attr)
+    # values are "x normal" prominence (normalized), not raw magnitudes
+    assert all(attr[k] > 0 for k in ("query_name_length", "subdomain_entropy", "encoded_labels"))
+    # long exfil data labels -> encoded_labels prominence is clearly elevated
+    assert attr["encoded_labels"] > 1.5
+
+
+def test_behavioral_features_drive_distinct_techniques(fitted):
+    """The same lexical alert maps to different MITRE techniques per window shape."""
+    from defender.detect.char_ae import QNAME_COL
+    from defender.enrich import MitreEnricher
+    enr = MitreEnricher()
+    qn = ["k7zq9x3mab2vq1w5e6r7.beacon.example.com"]
+
+    def shaped(**feats):
+        row = {c: 0.0 for c in DNS_FEATURES}
+        row.update(feats)
+        f = pd.DataFrame([row], columns=list(DNS_FEATURES))
+        f[QNAME_COL] = [qn]
+        res = fitted.score(f)[0]
+        return enr.candidate_techniques("dns", res.feature_attributions)
+
+    # TXT-heavy window -> C2 (T1071.004); high subdomain fan-out -> tunneling (T1572)
+    assert shaped(txt_query_count=9.0, max_subdomain_entropy=3.5)[0] == "T1071.004"
+    assert shaped(unique_subdomains_per_domain=18.0, max_subdomain_entropy=4.5)[0] == "T1572"
 
 
 def test_empty_window_is_not_anomalous(fitted):

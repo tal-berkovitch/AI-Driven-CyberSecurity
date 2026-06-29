@@ -29,7 +29,7 @@ from defender.detect.char_ae import (
 )
 
 from eval import metrics
-from eval.datasets.qname_cache import load_cache
+from eval.datasets.qname_cache import load_cache, synthetic_reverse_dns
 
 SEED = 13
 MODEL_PATH = Path("models/dns_charae.pt")
@@ -44,7 +44,9 @@ def recall_at_fpr(y: np.ndarray, s: np.ndarray, fpr: float = 0.01) -> float:
 def main() -> None:
     df = load_cache().drop_duplicates("qname")               # unique names only (no leakage)
     rng = np.random.default_rng(SEED)
-    benign = df[df.label == "benign"]["qname"].tolist()
+    # Augment benign with reverse-DNS (PTR) names absent from CIC-Bell's forward
+    # domains, so the model treats the abundant in-addr.arpa lookups as normal.
+    benign = df[df.label == "benign"]["qname"].tolist() + synthetic_reverse_dns()
     attack = df[df.label == "attack"]["qname"].tolist()
     rng.shuffle(benign)
     n_tr = int(0.7 * len(benign))

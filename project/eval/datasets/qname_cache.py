@@ -11,12 +11,30 @@ from __future__ import annotations
 import glob
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from collector.sensor import parse_packet
 
 DEFAULT_CACHE = Path("data/real/cic_bell_qnames.csv")
 CAP_PER_FILE = 30000
+
+
+def synthetic_reverse_dns(n: int = 8000, seed: int = 11) -> list[str]:
+    """Generate realistic IPv4 reverse-DNS (PTR) qnames, e.g. ``10.0.20.10.in-addr.arpa``.
+
+    CIC-Bell benign is all *forward* domains, so a char-AE trained on it alone
+    over-flags the digit-and-dot-heavy ``in-addr.arpa`` names that any real
+    network emits constantly (PTR lookups) — a domain-shift false positive. We mix
+    a diverse set of reverse-DNS names into the benign training corpus so the model
+    learns they are normal. Octets span the full range for lexical diversity.
+    """
+    rng = np.random.default_rng(seed)
+    names: list[str] = []
+    for _ in range(n):
+        a, b, c, d = (int(x) for x in rng.integers(0, 256, 4))
+        names.append(f"{d}.{c}.{b}.{a}.in-addr.arpa")
+    return list(dict.fromkeys(names))  # dedupe
 
 
 def _queries(paths: list[str], label: str, cap: int) -> list[dict]:

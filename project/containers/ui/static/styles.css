@@ -107,7 +107,7 @@ header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
 .feed .detail { color: var(--text); }
 
 /* counters (wrap to 2x2 in a narrow column) */
-.counters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+.counters { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
 .counter { background: #0d1117; border: 1px solid var(--border); border-radius: 6px; padding: 8px; text-align: center; }
 .counter .num { display: block; font-size: 20px; font-weight: bold; color: var(--accent); }
 .counter .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; }
@@ -140,7 +140,11 @@ header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
 .alerts .alert { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; }
 .alerts .alert .top { display: flex; justify-content: space-between; cursor: pointer; gap: 8px; }
 .alerts .alert .sev { color: var(--alert); font-weight: bold; }
-.alerts .alert .techs { color: var(--accent); font-size: 12px; text-align: right; }
+.alerts .alert .techs { font-size: 12px; text-align: right; display: flex; gap: 6px;
+  align-items: baseline; justify-content: flex-end; }
+.alerts .alert .techs .tprimary { color: var(--alert); font-weight: bold;
+  background: rgba(248, 81, 73, .12); border: 1px solid rgba(248, 81, 73, .4);
+  border-radius: 4px; padding: 0 5px; }
 .alerts .alert .report { display: none; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border);
   white-space: pre-wrap; font-size: 12px; color: var(--muted); max-height: 240px; overflow-y: auto; }
 .alerts .alert.open .report { display: block; }
@@ -209,6 +213,13 @@ header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
 .ae-edge { stroke: #5b6675; stroke-width: .7; opacity: .55; stroke-dasharray: 3 4;
   animation: edgeflow 1.6s linear infinite; }
 @keyframes edgeflow { to { stroke-dashoffset: -7; } }
+/* per-alert "neurons fire": the SVG is rebuilt on each alert, so this one-shot
+   flash replays every time a new alert lands -> the panel visibly blinks. */
+.ae-node.fire { animation: ae-fire .9s ease-out; }
+.ae-node.bottleneck.fire { animation: ae-fire .9s ease-out, pulse 2.4s ease-in-out infinite; }
+.ae-edge.fire { animation: ae-edgefire 1s ease-out; }
+@keyframes ae-fire { 0% { opacity: .12; } 22% { opacity: 1; } 100% { opacity: .95; } }
+@keyframes ae-edgefire { 0% { stroke: var(--alert); opacity: 1; } 100% { opacity: .55; } }
 .ae-label { fill: var(--muted); font-size: 8px; }
 .ae-role { fill: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .5px; }
 .ae-role.latent { fill: var(--accent); }

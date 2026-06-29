@@ -169,7 +169,7 @@ def window_threshold(benign_scores: np.ndarray, window_size: int = 64, fpr: floa
     return float(np.quantile(window_max, 1.0 - fpr))
 
 
-# --- lexical attribution (so the MITRE/LLM path reads the same evidence shape) -
+# --- attribution (so the MITRE/LLM path reads discriminating evidence) ---------
 
 def _data_label(qname: str) -> str:
     """The longest label of a qname — where exfil packs its payload."""
@@ -177,20 +177,57 @@ def _data_label(qname: str) -> str:
     return max(labels, key=len) if labels else ""
 
 
-def _lexical_attr(qname: str, recon_err: float) -> dict[str, float]:
-    """Human/MITRE-readable evidence for the worst qname.
+# Benign-ish reference scales: attribution is expressed as "x normal" prominence
+# so the heterogeneous lexical + behavioral features compete fairly in the MITRE
+# token-overlap retrieval (raw magnitudes would let qname length swamp everything).
+_REF = {
+    "query_name_length": 25.0,
+    "subdomain_entropy": 3.0,
+    "encoded_labels": 12.0,
+    "txt_record_count": 2.0,
+    "unique_subdomains_per_domain": 3.0,
+}
+_PROM_CAP = 8.0
 
-    Keys are chosen to overlap the DNS technique indicators in the MITRE KB
-    (``query_name_length`` / ``subdomain_entropy`` / ``encoded_labels``) so the
-    deterministic retrieval ranks DNS tunnelling/exfil without any special-casing.
+
+def _prom(value: float, ref: float) -> float:
+    return min(float(value) / ref, _PROM_CAP) if ref else 0.0
+
+
+def _attribution(qname: str, recon_err: float, row) -> dict[str, float]:
+    """Evidence for the worst qname + its window, as MITRE/LLM-readable prominence.
+
+    The detection is purely lexical (per-character reconstruction error), but the
+    *explanation* fuses the window's behavioral fingerprint so different DNS attack
+    shapes map to different techniques: ``subdomain_entropy`` /
+    ``unique_subdomains_per_domain`` → tunnelling (T1572), ``txt_record_count`` →
+    DNS C2 (T1071.004), ``encoded_labels`` → exfiltration (T1048.003). Keys are
+    chosen to overlap exactly one technique's KB indicators (see dns_techniques.json).
     """
     label = _data_label(qname)
-    return {
-        "query_name_length": float(len(qname)),
-        "subdomain_entropy": float(char_entropy(label)),
-        "encoded_labels": float(len(label)),
+
+    def feat(name: str) -> float:
+        try:
+            v = row[name] if row is not None and name in row else 0.0
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError, KeyError):
+            return 0.0
+
+    entropy = max(feat("max_subdomain_entropy"), char_entropy(label))
+    attr = {
+        "query_name_length": _prom(len(qname), _REF["query_name_length"]),
+        "subdomain_entropy": _prom(entropy, _REF["subdomain_entropy"]),
+        "encoded_labels": _prom(len(label), _REF["encoded_labels"]),
+        "txt_record_count": _prom(feat("txt_query_count"), _REF["txt_record_count"]),
+        "unique_subdomains_per_domain": _prom(
+            feat("unique_subdomains_per_domain"), _REF["unique_subdomains_per_domain"]),
+        # raw reconstruction error — the detection signal, kept as evidence (no MITRE
+        # token overlap, so it never skews retrieval).
         "qname_reconstruction_error": float(recon_err),
     }
+    # Drop inactive behavioral keys so the evidence stays clean per attack shape.
+    return {k: v for k, v in attr.items()
+            if v > 0 or k in ("query_name_length", "qname_reconstruction_error")}
 
 
 # --- the Detector backend -----------------------------------------------------
@@ -250,10 +287,11 @@ class CharAEDetector:
             s = score_names(self.model, names, self.vocab)
             worst = int(np.argmax(s))
             window_score = float(s[worst])
+            row = features.iloc[i]                            # window behavioral features
             results.append(ScoreResult(
                 anomaly_score=window_score,
                 is_anomaly=bool(window_score > self.threshold),
-                feature_attributions=_lexical_attr(names[worst], window_score),
+                feature_attributions=_attribution(names[worst], window_score, row),
             ))
         return results
 

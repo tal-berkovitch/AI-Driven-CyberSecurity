@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from shared.schema import ScoreResult
 
-VALID_BACKENDS = ("local", "charae", "isolation_forest", "morpheus")
+VALID_BACKENDS = ("charae", "isolation_forest", "morpheus")
 
 
 @runtime_checkable
@@ -28,16 +28,12 @@ class Detector(Protocol):
 
 
 def make_detector(backend: str | None = None, **kwargs) -> Detector:
-    """Construct the detector named by ``backend`` (default ``local``)."""
-    backend = (backend or "local").lower()
+    """Construct the detector named by ``backend`` (default ``charae``)."""
+    backend = (backend or "charae").lower()
     if backend == "isolation_forest":
         from .isolation_forest import IsolationForestDetector
 
         return IsolationForestDetector(**kwargs)
-    if backend == "local":
-        from .local_ae import LocalAutoencoderDetector
-
-        return LocalAutoencoderDetector(**kwargs)
     if backend == "charae":
         from .char_ae import CharAEDetector
 

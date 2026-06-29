@@ -13,7 +13,7 @@ Legend: ✅ done & verified · ⚠️ deviation (deliberate, defensible) · 🔜
 |---|---|---|---|
 | 1.1 | Real-time anomaly detector for DNS exfiltration/tunneling | ✅ | `containers/defender/main.py` (`DetectSink`), live `DEFENDER_MODE=detect` |
 | 1.2 | Isolated three-container architecture | ✅ | `docker-compose.yaml` `socnet` `internal: true` (attacker/collector/defender) |
-| 1.3 | Unsupervised **Autoencoder** baselines "normal" traffic | ✅ | `containers/defender/detect/char_ae.py` (char-embedding AE) + `local_ae.py`; trained by `eval/train.py` |
+| 1.3 | Unsupervised **Autoencoder** baselines "normal" traffic | ✅ | `containers/defender/detect/char_ae.py` (char-embedding AE); trained by `eval/charae.py` / `eval/train.py` |
 | 1.4 | LLM acts as SOC Analyst → xAI + human-readable CTI | ✅ | `containers/cti/{main,prompts,groq_client}.py` |
 | 1.5 | Reports mapped to **MITRE ATT&CK** | ✅ | `containers/defender/enrich/mitre_map.py`, `shared/mitre/dns_techniques.json` |
 | 1.6 | Triggered "when anomalies are detected" | ✅ | AE `is_anomaly` → `Alert` → `alerts` topic → CTI worker |
@@ -26,7 +26,7 @@ Legend: ✅ done & verified · ⚠️ deviation (deliberate, defensible) · 🔜
 | 2.2 | **Attacker**: replays benign baseline + injects DNS tunneling | ✅ | `containers/attacker/main.py`, `attacks/dns_tunnel.py`, `ATTACK_MODE` |
 | 2.3 | **Collector**: destination receiving DNS | ✅ | Real `dnsmasq` — `containers/collector/dnsmasq.conf`, `entrypoint.sh` |
 | 2.4 | **Defender**: passively intercept, extract protocol features, route to AI pipeline | ⚠️ | Feature extraction + AI pipeline ✅ (`features/`, `detect/`, `enrich/`). **Deviation D1**: the packet *tap* runs on the collector, not the defender. |
-| 2.5 | Autoencoder flags high reconstruction error | ✅ | `local_ae.py` per-feature reconstruction error → `ScoreResult` |
+| 2.5 | Autoencoder flags high reconstruction error | ✅ | `char_ae.py` per-character reconstruction error → `ScoreResult` |
 | 2.6 | Threat-Intel Memory via **Embeddings & Vector DB** → MITRE | ⚠️ | MITRE mapping ✅ (`enrich/mitre_map.py`). **Deviation D2**: deterministic retrieval, not embeddings/vector DB. |
 | 2.7 | SOC Analyst LLM → explainable report from anomaly context + raw protocol data | ✅ | `cti/prompts.py` grounds the prompt on attributions + raw `meta` context |
 

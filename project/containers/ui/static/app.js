@@ -33,7 +33,6 @@ function addTrafficRows(rows) {
 function renderStats(s) {
   $("c-captures").textContent = s.total_captures;
   $("c-alerts").textContent = s.total_alerts;
-  $("c-dns").textContent = s.by_proto.dns || 0;
   $("cap-count").textContent = s.total_captures + " events";
   $("alert-count").textContent = s.total_alerts;
 
@@ -64,11 +63,15 @@ function addAlerts(alerts) {
   for (const a of alerts) {
     const div = document.createElement("div");
     div.className = "alert";
+    const techs = a.techniques || [];
+    const primary = techs[0] || "—";
+    const related = techs.length > 1 ? `+${techs.length - 1} related` : "";
     div.innerHTML =
       `<div class="top"><span><span class="sev">${esc(a.proto.toUpperCase())}</span> ` +
       `${esc(a.src)} <span class="muted">score ${esc(a.score)}</span></span>` +
-      `<span class="techs">${esc((a.techniques || []).join(", "))}</span></div>` +
-      `<div class="muted">top: ${esc(a.top_feature)}</div>` +
+      `<span class="techs"><span class="tprimary">${esc(primary)}</span>` +
+      `<span class="muted">${esc(related)}</span></span></div>` +
+      `<div class="muted">top: ${esc(a.top_feature)} · techniques: ${esc(techs.join(", "))}</div>` +
       `<div class="report">${esc(a.report || "(no report yet)")}</div>`;
     div.querySelector(".top").addEventListener("click", () => div.classList.toggle("open"));
     box.insertBefore(div, box.firstChild);
@@ -160,17 +163,10 @@ let detectorState = null;    // latest alert from the ACTIVE backend
 let lastDetectorAt = 0;      // epoch ms of the last alert (for the IF "alerting" flash)
 const lastAttr = {};         // protocol -> {attributions, score, ts} of its most recent alert
 let selectedBackend = null;  // which backend's view is shown (default = active)
-let currentProto = null;
-let pinnedProto = null;      // when set, stop auto-following the latest alert's protocol
+let currentProto = "dns";    // DNS-only project — no protocol switching
 
 function mrow(k, v) { return `<span class="k">${esc(k)}</span><b>${esc(v)}</b>`; }
 function setBackend(b) { if (modelCard && modelCard.backends[b]) { selectedBackend = b; renderModel(); } }
-function setProto(p) { pinnedProto = p; currentProto = p; renderModel(); }
-function setAuto() {
-  pinnedProto = null;
-  if (detectorState && detectorState.protocol) currentProto = detectorState.protocol;
-  renderModel();
-}
 
 function renderBackendSwitch() {
   const el = $("backend-switch");
@@ -181,7 +177,7 @@ function renderBackendSwitch() {
   }).join("");
   // offer to make a viewed-but-inactive runnable backend the live one (restart defender)
   const canApply = selectedBackend !== modelCard.active_backend &&
-    (selectedBackend === "local" || selectedBackend === "isolation_forest");
+    (selectedBackend === "charae" || selectedBackend === "isolation_forest");
   if (canApply) html += `<button class="apply-backend" id="apply-backend">⟳ apply &amp; restart</button>`;
   el.innerHTML = html;
   el.querySelectorAll("button[data-b]").forEach((btn) => btn.addEventListener("click", () => setBackend(btn.dataset.b)));
@@ -193,16 +189,6 @@ function renderBackendSwitch() {
   });
 }
 
-function renderProtoToggle(protos) {
-  const toggle = $("model-toggle");
-  if (!protos.length) { toggle.innerHTML = ""; return; }
-  if (!protos.includes(currentProto)) currentProto = protos[0];
-  toggle.innerHTML =
-    `<button data-auto="1" class="${pinnedProto ? "" : "active"}">auto</button>` +
-    protos.map((p) => `<button data-p="${p}" class="${pinnedProto === p ? "active" : ""}">${esc(p)}</button>`).join("");
-  toggle.querySelectorAll("button").forEach((b) => b.addEventListener("click",
-    () => (b.dataset.auto ? setAuto() : setProto(b.dataset.p))));
-}
 
 // per-feature error from this protocol's most recent alert (only for the ACTIVE backend)
 function liveVals(feats, proto) {
@@ -210,16 +196,15 @@ function liveVals(feats, proto) {
   const attr = la ? la.attributions : {};
   return feats.map((f) => attr[f] || 0);
 }
-function topDrivers(feats, vals) {
-  return feats.map((f, j) => [f, vals[j]]).sort((a, b) => b[1] - a[1])
-    .filter(([, v]) => v > 0).slice(0, 3).map(([f]) => f);
-}
 function activeTag(b) { return selectedBackend === modelCard.active_backend ? " (active)" : " (inspect)"; }
 
 function renderAE(b) {
   $("ae-legend").style.display = "";
   const m = b.models[currentProto], layers = m.layers, feats = m.features || [];
   const vals = liveVals(feats, currentProto), maxv = Math.max(1e-9, ...vals);
+  // Did the active backend just alert? Drives the per-alert "neurons fire" animation.
+  const la0 = (selectedBackend === modelCard.active_backend) ? lastAttr[currentProto] : null;
+  const recent = !!(la0 && Date.now() - la0.ts < 9000);
   // spread the layers across more of the panel and use larger nodes for presence
   const W = 360, H = 200, padX = 14, padY = 13, nL = layers.length, minLayer = Math.min(...layers);
   const xs = layers.map((_, i) => padX + (W - 2 * padX) * (nL === 1 ? 0.5 : i / (nL - 1)));
@@ -231,19 +216,26 @@ function renderAE(b) {
     const s1 = Math.ceil(layers[i] / 8), s2 = Math.ceil(layers[i + 1] / 8);
     for (let a = 0; a < y1.length; a += s1)
       for (let bb = 0; bb < y2.length; bb += s2)
-        parts.push(`<line class="ae-edge" x1="${xs[i].toFixed(1)}" y1="${y1[a].toFixed(1)}" x2="${xs[i + 1].toFixed(1)}" y2="${y2[bb].toFixed(1)}"/>`);
+        parts.push(`<line class="ae-edge${recent ? " fire" : ""}" x1="${xs[i].toFixed(1)}" y1="${y1[a].toFixed(1)}" x2="${xs[i + 1].toFixed(1)}" y2="${y2[bb].toFixed(1)}"/>`);
   }
   for (let i = 0; i < nL; i++) {
     const y = ys(layers[i]);
-    const isIO = (i === 0 || i === nL - 1) && feats.length === layers[i];
+    const isIO = (i === 0 || i === nL - 1);            // input/output layers carry the heatmap
     const isBottleneck = layers[i] === minLayer;
     for (let j = 0; j < y.length; j++) {
       let fill = isBottleneck ? "#1f6feb" : "#3a4350";
-      if (isIO) {
-        const norm = vals[j] / maxv;                   // heatmap: dim grey -> amber -> red
-        fill = norm < 0.02 ? "#3a4350" : `rgb(246,${Math.round(180 - 99 * norm)},${Math.round(40 + 33 * norm)})`;
+      // Light the IO nodes from the alert's feature prominences. The IO layer is far
+      // wider than the handful of evidence features (it's the char vocab), so spread
+      // each feature across a contiguous band of nodes — different alerts (txt vs
+      // fan-out vs encoded-label) light different bands.
+      if (isIO && recent && maxv > 1e-6) {
+        const fi = Math.min(vals.length - 1, Math.floor((j / y.length) * vals.length));
+        const norm = Math.min(1, (vals[fi] || 0) / maxv);
+        if (norm >= 0.04)
+          fill = `rgb(246,${Math.round(180 - 99 * norm)},${Math.round(40 + 33 * norm)})`;
       }
-      parts.push(`<circle class="ae-node${isBottleneck ? " bottleneck" : ""}" cx="${xs[i].toFixed(1)}" cy="${y[j].toFixed(1)}" r="${r}" fill="${fill}"/>`);
+      const fire = recent && (isIO || isBottleneck) ? " fire" : "";
+      parts.push(`<circle class="ae-node${isBottleneck ? " bottleneck" : ""}${fire}" cx="${xs[i].toFixed(1)}" cy="${y[j].toFixed(1)}" r="${r}" fill="${fill}"/>`);
     }
   }
   for (let i = 0; i < nL; i++)
@@ -254,24 +246,22 @@ function renderAE(b) {
     if (rl) parts.push(`<text class="ae-role${rl === "latent" ? " latent" : ""}" x="${xs[i].toFixed(1)}" y="9" text-anchor="middle">${rl}</text>`);
   }
   $("ae-svg").innerHTML = parts.join("");
-  const drivers = topDrivers(feats, vals);
   const la = (selectedBackend === modelCard.active_backend) ? lastAttr[currentProto] : null;
   $("model-sub").textContent = la
-    ? `${currentProto.toUpperCase()} · nodes lit by last alert (${Math.round((Date.now() - la.ts) / 1000)}s ago)`
+    ? `${currentProto.toUpperCase()} · ${recent ? "⚡ firing" : "nodes lit"} from last alert `
+      + `(${Math.round((Date.now() - la.ts) / 1000)}s ago)`
     : `${currentProto.toUpperCase()} · waiting for a ${currentProto.toUpperCase()} alert`;
   $("model-card").innerHTML =
     mrow("backend", b.label + activeTag(b)) +
     mrow("architecture", layers.join(" → ")) +
     mrow("parameters", (m.n_params || 0).toLocaleString()) +
     mrow("threshold", (+m.threshold).toPrecision(3)) +
-    mrow("features", m.input_dim) +
-    mrow("top drivers", drivers.length ? drivers.join(", ") : "—");
+    mrow("features", m.input_dim);
 }
 
 function renderIF(b) {
   $("ae-legend").style.display = "none";
-  const m = b.models[currentProto], feats = m.features || [];
-  const vals = liveVals(feats, currentProto);
+  const m = b.models[currentProto];
   // the whole ensemble flashes red when it (the active backend) flags an anomaly
   const alerting = selectedBackend === modelCard.active_backend &&
     detectorState && detectorState.protocol === currentProto && (Date.now() - lastDetectorAt < 8000);
@@ -289,7 +279,6 @@ function renderIF(b) {
   const shown = drawn < n ? ` (showing ${drawn})` : "";
   parts.push(`<text class="ae-label" x="${W / 2}" y="${H - 4}" text-anchor="middle">${n} isolation trees${shown}</text>`);
   $("ae-svg").innerHTML = parts.join("");
-  const drivers = topDrivers(feats, vals);
   $("model-sub").textContent = alerting
     ? `${b.label} · ⚠ anomaly flagged (score ${(detectorState.score || 0).toFixed(2)})`
     : `${b.label}${activeTag(b)} · ${currentProto.toUpperCase()} · unsupervised baseline`;
@@ -299,7 +288,6 @@ function renderIF(b) {
     mrow("contamination", m.contamination) +
     mrow("max samples", m.max_samples) +
     mrow("features", m.input_dim) +
-    mrow("top drivers", drivers.length ? drivers.join(", ") : "—") +
     mrow("note", m.note || "");
 }
 
@@ -319,9 +307,12 @@ function renderModel() {
     selectedBackend = modelCard.active_backend || Object.keys(modelCard.backends)[0];
   renderBackendSwitch();
   const b = modelCard.backends[selectedBackend];
+  const mt = $("model-title");
+  if (mt) mt.textContent = "🕸️ Detector Model — " + b.label;
   const protos = Object.keys(b.models || {});
+  currentProto = protos.includes("dns") ? "dns" : (protos[0] || "dns");
+  $("model-toggle").innerHTML = "";                 // DNS-only — no protocol toggle
   if (b.available && protos.length && (b.type === "autoencoder" || b.type === "isolation_forest")) {
-    renderProtoToggle(protos);
     (b.type === "autoencoder" ? renderAE : renderIF)(b);
   } else {
     renderUnavailable(b);
@@ -355,10 +346,9 @@ function connect() {
       lastAttr[detectorState.protocol] = {
         attributions: detectorState.attributions || {}, score: detectorState.score, ts: Date.now(),
       };
+      currentProto = detectorState.protocol;   // DNS-only — always follow the alert
     }
-    // follow the latest alert's protocol only in AUTO mode (no manual pin)
-    if (!pinnedProto && detectorState.protocol) currentProto = detectorState.protocol;
-    renderModel();
+    renderModel();   // re-render on every alert so the network visibly fires
   });
 }
 

@@ -36,7 +36,7 @@ def test_tunnel_separates_from_benign_in_feature_space():
 
 # --- detectors ---------------------------------------------------------------
 
-@pytest.mark.parametrize("backend", ["isolation_forest", "local"])
+@pytest.mark.parametrize("backend", ["isolation_forest"])
 def test_detector_scores_attacks_higher_than_benign(backend):
     det = make_detector(backend)
     assert isinstance(det, Detector)
@@ -55,8 +55,8 @@ def test_detector_scores_attacks_higher_than_benign(backend):
     assert preds.mean() >= 0.7
 
 
-def test_autoencoder_attributes_tunnel_to_dns_features():
-    det = make_detector("local")
+def test_isolation_forest_attributes_tunnel_to_dns_features():
+    det = make_detector("isolation_forest")
     benign = scenarios.benign_dns(120, seed=20)
     det.fit(_frame(benign, DNS_FEATURES))
     attack = _frame(scenarios.tunnel_dns(10, "loud", seed=21), DNS_FEATURES)

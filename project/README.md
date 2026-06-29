@@ -14,7 +14,7 @@ autoencoder** scores the qname strings themselves (the *lexical* signal — long
 high-entropy exfil names reconstruct badly), while an **Isolation Forest** scores
 the per-window behavioral features. Both sit behind a stable interface so the
 **home backends** swap for the **lab backend** (NVIDIA Morpheus DFP on a GPU box)
-with a single flag — `DETECTOR_BACKEND=charae | isolation_forest | local | morpheus`.
+with a single flag — `DETECTOR_BACKEND=charae | isolation_forest | morpheus`.
 On the real CIC-Bell-DNS-EXF-2021 corpus the char-AE reaches ROC-AUC 1.000
 (recall 1.000 @ 0.1% FPR) on held-out exfil.
 
@@ -37,7 +37,7 @@ table in ARCHITECTURE.md §9.
 ```bash
 cp .env.example .env          # set GROQ_API_KEY for AG2 CTI + the analyst chat
 
-# Train the detectors once (writes models/dns_{charae,local,isolation_forest}.pt):
+# Train the detectors once (writes models/dns_{charae,isolation_forest}.pt):
 uv run --extra detect python -m eval.train
 
 # Bring up the full stack in live-detection mode:

@@ -26,7 +26,7 @@ HOSTS = ["www", "api", "mail", "db", "cdn", "ntp", "vpn"]
 _B32 = "abcdefghijklmnopqrstuvwxyz234567"
 
 # Binary + multiclass labels.
-ATTACK_CLASSES = ("dns_tunnel",)
+ATTACK_CLASSES = ("dns_tunnel", "dns_exfil", "dns_c2")
 
 
 def _run(events: list[CaptureEvent], label: str) -> list[FeatureRecord]:
@@ -62,24 +62,59 @@ def benign_dns(n_windows: int, seed: int = 0) -> list[FeatureRecord]:
     return _run(events, "benign")
 
 
-def tunnel_dns(n_windows: int, intensity: str = "loud", seed: int = 0) -> list[FeatureRecord]:
-    """DNS tunneling: long, high-entropy subdomains, TXT/NULL-heavy.
+def _blob(rng, lo: int, hi: int) -> str:
+    return "".join(rng.choice(list(_B32), size=int(rng.integers(lo, hi + 1))))
 
-    loud = high query volume; slow = low-and-slow (few queries/window but the same
-    encoded-payload fingerprint), which rate-based detection misses.
+
+def tunnel_dns(n_windows: int, intensity: str = "loud", seed: int = 0) -> list[FeatureRecord]:
+    """DNS tunneling (T1572): fan-out — MANY distinct moderate high-entropy
+    subdomains under one tunnel domain (A/CNAME). The discriminator is *unique
+    subdomains per domain*, not payload size. loud = high volume; slow = low-and-slow.
     """
     rng = np.random.default_rng(seed)
-    lo, hi = (25, 55) if intensity == "loud" else (2, 5)
+    lo, hi = (15, 30) if intensity == "loud" else (2, 4)
     events: list[CaptureEvent] = []
     for w in range(n_windows):
         for _ in range(int(rng.integers(lo, hi + 1))):
-            blob = "".join(rng.choice(list(_B32), size=int(rng.integers(28, 45))))
-            qname = f"{blob}.t.tunnel.{DOMAIN}"
-            qt = str(rng.choice(["TXT", "TXT", "NULL", "A"]))
+            qname = f"{_blob(rng, 12, 18)}.t.tunnel.{DOMAIN}"
+            qt = str(rng.choice(["A", "A", "CNAME"]))
             events.append(CaptureEvent("dns", _ts(rng, w), CLIENT, SERVER,
                                        size=len(qname) + 16,
                                        is_response=False, qname=qname, qtype=qt))
     return _run(events, "dns_tunnel")
+
+
+def exfil_dns(n_windows: int, intensity: str = "loud", seed: int = 0) -> list[FeatureRecord]:
+    """DNS exfiltration (T1048.003): few-but-huge queries — each one very long
+    base32 *data label* under a drop domain (A). The discriminator is *encoded
+    label length*, not fan-out.
+    """
+    rng = np.random.default_rng(seed)
+    lo, hi = (2, 5) if intensity == "loud" else (1, 2)
+    events: list[CaptureEvent] = []
+    for w in range(n_windows):
+        for _ in range(int(rng.integers(lo, hi + 1))):
+            qname = f"{_blob(rng, 40, 52)}.exfil.{DOMAIN}"
+            events.append(CaptureEvent("dns", _ts(rng, w), CLIENT, SERVER,
+                                       size=len(qname) + 16,
+                                       is_response=False, qname=qname, qtype="A"))
+    return _run(events, "dns_exfil")
+
+
+def c2_dns(n_windows: int, intensity: str = "loud", seed: int = 0) -> list[FeatureRecord]:
+    """DNS C2 beacon (T1071.004): TXT-record-heavy beaconing to encoded subdomains
+    on a regular cadence. The discriminator is *elevated TXT-record count*.
+    """
+    rng = np.random.default_rng(seed)
+    lo, hi = (5, 9) if intensity == "loud" else (3, 5)
+    events: list[CaptureEvent] = []
+    for w in range(n_windows):
+        for _ in range(int(rng.integers(lo, hi + 1))):
+            qname = f"{_blob(rng, 18, 26)}.beacon.{DOMAIN}"
+            events.append(CaptureEvent("dns", _ts(rng, w), CLIENT, SERVER,
+                                       size=len(qname) + 16,
+                                       is_response=False, qname=qname, qtype="TXT"))
+    return _run(events, "dns_c2")
 
 
 def build_labeled_records(seed: int = 7) -> dict[str, list[FeatureRecord]]:
@@ -87,7 +122,11 @@ def build_labeled_records(seed: int = 7) -> dict[str, list[FeatureRecord]]:
     return {
         "dns": (
             benign_dns(140, seed=seed)
-            + tunnel_dns(35, "loud", seed=seed + 1)
-            + tunnel_dns(35, "slow", seed=seed + 2)
+            + tunnel_dns(30, "loud", seed=seed + 1)
+            + tunnel_dns(20, "slow", seed=seed + 2)
+            + exfil_dns(30, "loud", seed=seed + 3)
+            + exfil_dns(20, "slow", seed=seed + 4)
+            + c2_dns(30, "loud", seed=seed + 5)
+            + c2_dns(20, "slow", seed=seed + 6)
         ),
     }
