@@ -40,11 +40,9 @@ def test_detect_sink_emits_enriched_alerts(tmp_path):
 
 
 def test_detect_sink_ignores_protocol_without_model(tmp_path):
-    det = make_detector("local")
-    det.fit(_frame(scenarios.benign_dns(120, seed=20)))
-    sink = DetectSink({"dns": det}, MitreEnricher(), FileQueueProducer(tmp_path))
-    # SNMP records arrive but no SNMP model is loaded -> skipped, no crash, no alerts.
-    sink.handle(scenarios.walk_snmp(10, "loud", seed=21))
+    # No detector loaded for the records' protocol -> skipped, no crash, no alerts.
+    sink = DetectSink({}, MitreEnricher(), FileQueueProducer(tmp_path))
+    sink.handle(scenarios.tunnel_dns(10, "loud", seed=21))
     assert sink.n_alerts == 0
 
 

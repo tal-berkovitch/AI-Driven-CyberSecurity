@@ -1,6 +1,6 @@
-# Multi-Agent AI SOC — DNS/SNMP Anomaly Detection & CTI Generation
+# Multi-Agent AI SOC — DNS Exfiltration/Tunneling Detection & CTI Generation
 
-Real-time behavioral anomaly detection for DNS and SNMP traffic, with an LLM SOC
+Real-time anomaly detection for DNS exfiltration and tunneling, with an LLM SOC
 analyst that turns detections into explainable Cyber Threat Intelligence mapped to
 MITRE ATT&CK. Built for the HIT course *AI in Cybersecurity based on NVIDIA Morpheus*.
 
@@ -8,11 +8,15 @@ MITRE ATT&CK. Built for the HIT course *AI in Cybersecurity based on NVIDIA Morp
 
 ## Core idea
 
-An unsupervised autoencoder learns the "normal heartbeat" of a network's DNS/SNMP
-traffic; high reconstruction error flags anomalies. The detector sits behind a
-stable interface so the **home backend** (local PyTorch AE) can be swapped for the
-**lab backend** (NVIDIA Morpheus DFP on a GPU box) with a single config flag —
-`DETECTOR_BACKEND=local | isolation_forest | morpheus`.
+Two complementary unsupervised detectors learn the "normal heartbeat" of a
+network's DNS traffic; deviation flags anomalies. A **character-embedding sequence
+autoencoder** scores the qname strings themselves (the *lexical* signal — long,
+high-entropy exfil names reconstruct badly), while an **Isolation Forest** scores
+the per-window behavioral features. Both sit behind a stable interface so the
+**home backends** swap for the **lab backend** (NVIDIA Morpheus DFP on a GPU box)
+with a single flag — `DETECTOR_BACKEND=charae | isolation_forest | local | morpheus`.
+On the real CIC-Bell-DNS-EXF-2021 corpus the char-AE reaches ROC-AUC 1.000
+(recall 1.000 @ 0.1% FPR) on held-out exfil.
 
 ```
 attacker ──▶ defender (capture ─▶ features ─▶ DETECTOR ─▶ enrich ─▶ CTI ─▶ UI) ──▶ collector
@@ -33,7 +37,7 @@ table in ARCHITECTURE.md §9.
 ```bash
 cp .env.example .env          # set GROQ_API_KEY for AG2 CTI + the analyst chat
 
-# Train the detector(s) once (writes models/{dns,snmp}_local.pt):
+# Train the detectors once (writes models/dns_{charae,local,isolation_forest}.pt):
 uv run --extra detect python -m eval.train
 
 # Bring up the full stack in live-detection mode:
@@ -71,9 +75,9 @@ uv run pytest                            # contract + transport round-trip tests
 |------|---------|
 | `shared/schema.py` | `FeatureRecord` / `ScoreResult` / `Alert` — the only cross-stage coupling |
 | `shared/transport/` | Pluggable spine: **Apache Kafka** (`TRANSPORT=kafka`, default) or file queue (`file`) |
-| `shared/mitre/` | Curated DNS/SNMP MITRE ATT&CK knowledge base |
+| `shared/mitre/` | Curated DNS MITRE ATT&CK knowledge base |
 | `containers/attacker` | Benign generator + attack injectors |
-| `containers/collector` | Dummy DNS/SNMP destination + passive tap |
+| `containers/collector` | DNS resolver (dnsmasq) destination + passive tap |
 | `containers/defender` | Capture → features → detect → enrich → alerts (air-gapped) |
 | `containers/cti` | Egress worker: AG2 multi-agent CTI from alerts → reports |
 | `containers/ui` | Egress FastAPI/SSE SOC dashboard — 3 live panels (port 8000) |

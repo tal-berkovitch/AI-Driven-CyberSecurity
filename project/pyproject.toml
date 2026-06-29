@@ -1,7 +1,7 @@
 [project]
-name = "soc-dns-snmp"
+name = "soc-dns"
 version = "0.1.0"
-description = "Multi-agent AI SOC for DNS/SNMP anomaly detection and CTI generation"
+description = "Multi-agent AI SOC for DNS exfiltration/tunneling anomaly detection and CTI generation"
 requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.2",
@@ -34,6 +34,9 @@ package = false
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Notebooks are Colab-oriented and intentionally use compact cell style
+# (inline semicolons, grouped imports); don't hold them to library lint rules.
+extend-exclude = ["notebooks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

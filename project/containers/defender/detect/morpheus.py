@@ -15,7 +15,7 @@ point the defender logs it and falls back, rather than crashing.
 1. Install NVIDIA Morpheus + ``dfencoder`` on the GPU box (conda / NGC per the
    Morpheus docs).
 2. Train:  ``uv run --extra detect python -m eval.train --backends morpheus``
-           (writes ``models/{dns,snmp}_morpheus.pt``).
+           (writes ``models/dns_morpheus.pt``).
 3. Run:    ``DETECTOR_BACKEND=morpheus DEFENDER_MODE=detect docker compose up``.
    The dashboard's backend switch shows **Morpheus DFP** as the active (green) backend.
 

@@ -84,7 +84,8 @@ def main():
     scored = []
     for c in feats:
         col = df[c].to_numpy(float)
-        mb = np.median(col[y == 0]); ma = np.median(col[y == 1])
+        mb = np.median(col[y == 0])
+        ma = np.median(col[y == 1])
         auc = roc_auc(y, col)
         scored.append((abs(auc - 0.5), auc, c, mb, ma))
     for _, auc, c, mb, ma in sorted(scored, reverse=True):

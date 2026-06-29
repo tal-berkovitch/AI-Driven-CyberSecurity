@@ -6,8 +6,6 @@ from defender.baseline import BaselineWriter
 from defender.features import WindowAggregator
 from defender.features.dns import DNS_FEATURES
 from defender.features.dns import extract as dns_extract
-from defender.features.snmp import SNMP_FEATURES
-from defender.features.snmp import extract as snmp_extract
 from defender.features.util import char_entropy, registered_domain, subdomain_of
 
 from shared.capture import CaptureEvent
@@ -17,12 +15,6 @@ def _dns(qname, qtype="A", is_response=False, **kw):
     return CaptureEvent(proto="dns", ts=kw.pop("ts", 0.0), src=kw.pop("src", "10.20.0.99"),
                         dst="10.20.0.2", size=kw.pop("size", 64), is_response=is_response,
                         qname=qname, qtype=qtype, **kw)
-
-
-def _snmp(pdu, oids, community="public", **kw):
-    return CaptureEvent(proto="snmp", ts=kw.pop("ts", 0.0), src=kw.pop("src", "10.20.0.99"),
-                        dst="10.20.0.2", size=kw.pop("size", 80), pdu=pdu,
-                        community=community, oids=oids)
 
 
 # --- utilities ---------------------------------------------------------------
@@ -66,24 +58,6 @@ def test_dns_nxdomain_counted_from_responses():
     assert feats["response_count"] == 1
 
 
-# --- SNMP features -----------------------------------------------------------
-
-def test_snmp_walk_shape_inflates_getnext_and_oid_breadth():
-    walk = [_snmp("getnext", [f"1.3.6.1.2.1.2.2.1.10.{i}"]) for i in range(1, 9)]
-    feats, _ = snmp_extract(walk, window_s=10.0)
-    assert set(feats) == set(SNMP_FEATURES)
-    assert feats["getnext_rate"] > 0
-    assert feats["oid_range_walked"] == 8
-    assert feats["distinct_oids"] == 8
-
-
-def test_snmp_community_entropy_zero_for_single_community():
-    events = [_snmp("get", ["1.3.6.1.2.1.1.1.0"]) for _ in range(5)]
-    feats, _ = snmp_extract(events, 10.0)
-    assert feats["community_entropy"] == 0.0
-    assert feats["distinct_communities"] == 1
-
-
 # --- windowing ---------------------------------------------------------------
 
 def test_aggregator_closes_window_when_later_event_arrives():
@@ -103,14 +77,14 @@ def test_aggregator_closes_window_when_later_event_arrives():
     assert len(tail) == 1 and tail[0].ts == 10.0
 
 
-def test_aggregator_separates_protocols_and_sources():
+def test_aggregator_separates_sources():
     agg = WindowAggregator(window_s=10.0)
     agg.add(_dns("www.example.local", ts=1.0, src="10.20.0.5"))
     agg.add(_dns("www.example.local", ts=1.0, src="10.20.0.6"))
-    agg.add(_snmp("get", ["1.3.6.1.2.1.1.1.0"], ts=1.0))
+    agg.add(_dns("api.example.local", ts=1.0, src="10.20.0.5"))
     out = agg.flush_all()
     keys = {(r.protocol, r.src) for r in out}
-    assert keys == {("dns", "10.20.0.5"), ("dns", "10.20.0.6"), ("snmp", "10.20.0.99")}
+    assert keys == {("dns", "10.20.0.5"), ("dns", "10.20.0.6")}
 
 
 def test_baseline_writer_emits_header_and_rows(tmp_path):

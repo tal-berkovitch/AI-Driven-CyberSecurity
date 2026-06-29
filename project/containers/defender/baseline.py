@@ -1,8 +1,8 @@
 """Persist FeatureRecords as the Phase 1 deliverable: the benign baseline CSV.
 
-One CSV per protocol with a stable, ordered header (``ts,src,dst`` + the §4
-feature columns). This is the dataset Phase 2 trains the autoencoder on and
-benchmarks every detector backend against.
+One CSV with a stable, ordered header (``ts,src,dst`` + the §4 DNS feature
+columns). This is the dataset Phase 2 trains the autoencoder on and benchmarks
+every detector backend against.
 """
 
 from __future__ import annotations
@@ -13,17 +13,16 @@ from pathlib import Path
 from shared.schema import FeatureRecord
 
 from .features.dns import DNS_FEATURES
-from .features.snmp import SNMP_FEATURES
 
 _BASE_COLS = ("ts", "src", "dst")
-_SCHEMAS = {"dns": DNS_FEATURES, "snmp": SNMP_FEATURES}
+_SCHEMAS = {"dns": DNS_FEATURES}
 
 
 class BaselineWriter:
     def __init__(self, out_dir: str | Path) -> None:
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        self.counts: dict[str, int] = {"dns": 0, "snmp": 0}
+        self.counts: dict[str, int] = {"dns": 0}
 
     def _path(self, proto: str) -> Path:
         return self.out_dir / f"{proto}_baseline.csv"

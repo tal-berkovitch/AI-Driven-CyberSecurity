@@ -12,7 +12,6 @@ pytest.importorskip("torch")
 from defender.detect import make_detector  # noqa: E402
 from defender.detect.base import Detector  # noqa: E402
 from defender.features.dns import DNS_FEATURES  # noqa: E402
-from defender.features.snmp import SNMP_FEATURES  # noqa: E402
 
 from eval import metrics  # noqa: E402
 from eval import scenarios  # noqa: E402
@@ -33,13 +32,6 @@ def test_tunnel_separates_from_benign_in_feature_space():
     assert t["mean_subdomain_entropy"].mean() > b["mean_subdomain_entropy"].mean()
     assert t["max_qname_length"].mean() > b["max_qname_length"].mean()
     assert all(r.meta["label"] == "dns_tunnel" for r in tunnel)
-
-
-def test_snmp_walk_inflates_oid_breadth():
-    benign = _frame(scenarios.benign_snmp(20, seed=3), SNMP_FEATURES)
-    walk = _frame(scenarios.walk_snmp(20, "loud", seed=4), SNMP_FEATURES)
-    assert walk["oid_range_walked"].mean() > benign["oid_range_walked"].mean()
-    assert walk["getnext_rate"].mean() > benign["getnext_rate"].mean()
 
 
 # --- detectors ---------------------------------------------------------------

@@ -18,9 +18,9 @@ from typing import Any
 
 @dataclass
 class FeatureRecord:
-    """One extracted observation (a DNS query window or SNMP exchange)."""
+    """One extracted observation (a DNS query window)."""
 
-    protocol: str                       # "dns" | "snmp"
+    protocol: str                       # "dns"
     ts: float                           # unix timestamp
     src: str                            # source address/host
     dst: str                            # destination address/host

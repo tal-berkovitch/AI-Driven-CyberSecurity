@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from shared.schema import ScoreResult
 
-VALID_BACKENDS = ("local", "isolation_forest", "morpheus")
+VALID_BACKENDS = ("local", "charae", "isolation_forest", "morpheus")
 
 
 @runtime_checkable
@@ -38,6 +38,10 @@ def make_detector(backend: str | None = None, **kwargs) -> Detector:
         from .local_ae import LocalAutoencoderDetector
 
         return LocalAutoencoderDetector(**kwargs)
+    if backend == "charae":
+        from .char_ae import CharAEDetector
+
+        return CharAEDetector(**kwargs)
     if backend == "morpheus":
         # Import-safe scaffold: constructs fine without Morpheus installed; only
         # fit/score/load raise (with install hints) if dfencoder is absent.

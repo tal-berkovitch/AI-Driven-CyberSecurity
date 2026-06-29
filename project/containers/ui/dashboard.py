@@ -159,7 +159,7 @@ def offline_summary(state: DashboardState) -> str:
     """Deterministic situation report when no LLM is available."""
     st = state.stats()
     if st["total_alerts"] == 0:
-        return ("No anomalies yet. Monitoring DNS/SNMP traffic — "
+        return ("No anomalies yet. Monitoring DNS traffic — "
                 f"{st['total_captures']} events observed so far.")
     techs = ", ".join(f"{t} (x{n})" for t, n in st["technique_freq"].items()) or "none"
     protos = ", ".join(f"{p}: {n}" for p, n in st["by_proto"].items())

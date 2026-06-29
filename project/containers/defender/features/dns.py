@@ -93,8 +93,12 @@ def extract(events: list[CaptureEvent], window_s: float) -> tuple[dict[str, floa
         "nxdomain_rate": safe_div(nxdomain, len(responses)),
     }
 
+    uniq_qnames = list(dict.fromkeys(qnames))
     meta: dict[str, Any] = {
-        "sample_qnames": list(dict.fromkeys(qnames))[:8],
+        "sample_qnames": uniq_qnames[:8],
+        # Every unique qname in the window (bounded) — the char-embedding AE backend
+        # scores these strings directly; the numeric backends ignore the column.
+        "qnames": uniq_qnames[:256],
         "qtype_mix": dict(qtypes),
         "domains": sorted(domains)[:8],
     }

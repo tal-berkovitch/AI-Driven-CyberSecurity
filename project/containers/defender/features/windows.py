@@ -11,11 +11,10 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from shared.capture import DNS, SNMP, CaptureEvent
+from shared.capture import DNS, CaptureEvent
 from shared.schema import FeatureRecord
 
 from . import dns as dns_feats
-from . import snmp as snmp_feats
 
 
 class WindowAggregator:
@@ -60,12 +59,9 @@ class WindowAggregator:
         records: list[FeatureRecord] = []
         for (proto, src), evs in groups.items():
             dst = Counter(e.dst for e in evs).most_common(1)[0][0]
-            if proto == DNS:
-                feats, meta = dns_feats.extract(evs, self.window_s)
-            elif proto == SNMP:
-                feats, meta = snmp_feats.extract(evs, self.window_s)
-            else:
+            if proto != DNS:
                 continue
+            feats, meta = dns_feats.extract(evs, self.window_s)
             meta["window_start"] = window_start
             meta["window_seconds"] = self.window_s
             meta["event_count"] = len(evs)

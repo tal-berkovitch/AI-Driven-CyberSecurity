@@ -31,16 +31,18 @@ from shared.transport import Producer, make_consumer, make_producer
 from .baseline import BaselineWriter
 from .features import WindowAggregator
 from .features.dns import DNS_FEATURES
-from .features.snmp import SNMP_FEATURES
 
 LOG = logging.getLogger("defender")
 
-VALID_BACKENDS = {"local", "isolation_forest", "morpheus"}
+VALID_BACKENDS = {"local", "charae", "isolation_forest", "morpheus"}
 # Backends the dashboard may select via the control file (loadable here).
-CONTROL_BACKENDS = {"local", "isolation_forest"}
-SCHEMAS = {"dns": DNS_FEATURES, "snmp": SNMP_FEATURES}
+CONTROL_BACKENDS = {"local", "charae", "isolation_forest"}
+SCHEMAS = {"dns": DNS_FEATURES}
 CAPTURE_TOPIC = "capture"
 ALERTS_TOPIC = "alerts"
+# Frame column carrying raw qnames to the char-AE backend (mirrors char_ae.QNAME_COL;
+# defined here so record mode needn't import torch).
+QNAME_COL = "qnames"
 # A window whose packets are mostly responses is a server echoing the other side
 # of an exchange; alerting on it duplicates the initiator's alert. Suppress it.
 RESPONSE_ALERT_THRESHOLD = float(os.getenv("RESPONSE_ALERT_THRESHOLD", "0.5"))
@@ -65,8 +67,7 @@ class RecordSink:
         if not records:
             return
         self.writer.write_many(records)
-        LOG.info("wrote %d feature rows (dns=%d snmp=%d)",
-                 len(records), self.writer.counts["dns"], self.writer.counts["snmp"])
+        LOG.info("wrote %d feature rows (dns=%d)", len(records), self.writer.counts["dns"])
 
 
 class DetectSink:
@@ -92,6 +93,10 @@ class DetectSink:
             schema = SCHEMAS[rec.protocol]
             frame = pd.DataFrame([{c: rec.features.get(c, 0.0) for c in schema}],
                                  columns=list(schema))
+            # Carry the raw qnames alongside the numeric features: the char-embedding
+            # AE backend scores the strings; numeric backends select their own columns
+            # and ignore this one.
+            frame[QNAME_COL] = [rec.meta.get("qnames") or rec.meta.get("sample_qnames") or []]
             score = det.score(frame)[0]
             if not score.is_anomaly:
                 continue
@@ -110,7 +115,7 @@ def _load_detectors(backend: str, models_dir: str) -> dict:
     from .detect import make_detector  # lazy: record mode needs no torch
 
     detectors: dict = {}
-    for proto in ("dns", "snmp"):
+    for proto in ("dns",):
         path = Path(models_dir) / f"{proto}_{backend}.pt"
         if not path.exists():
             LOG.warning("no model for %s at %s", proto, path)
@@ -126,8 +131,8 @@ def _load_detectors(backend: str, models_dir: str) -> dict:
     return detectors
 
 
-BACKEND_LABELS = {"local": "Autoencoder", "isolation_forest": "Isolation Forest",
-                  "morpheus": "Morpheus DFP"}
+BACKEND_LABELS = {"local": "Autoencoder", "charae": "Char-Embedding AE",
+                  "isolation_forest": "Isolation Forest", "morpheus": "Morpheus DFP"}
 
 
 def _ae_card(det, proto: str) -> dict:
@@ -146,6 +151,28 @@ def _ae_card(det, proto: str) -> dict:
     return {"type": "autoencoder", "input_dim": input_dim, "hidden": hidden,
             "layers": layers, "threshold": float(getattr(det, "threshold", 0.0)),
             "n_params": n_params, "features": feats}
+
+
+def _charae_card(det, proto: str) -> dict:
+    # Char-embedding sequence AE: vocab -> embed -> GRU(hidden) -> latent -> GRU -> vocab.
+    # Rendered with the autoencoder network view (funnel) using its real dimensions.
+    vocab_size = len(getattr(det, "vocab", {})) + 2
+    from .detect.char_ae import EMBED, HIDDEN, LATENT
+    layers = [vocab_size, EMBED, HIDDEN, LATENT, HIDDEN, EMBED, vocab_size]
+    n_params = 0
+    model = getattr(det, "model", None)
+    if model is not None:
+        try:
+            n_params = int(sum(p.numel() for p in model.parameters()))
+        except (AttributeError, TypeError):
+            n_params = 0
+    return {"type": "autoencoder", "input_dim": vocab_size, "hidden": [EMBED, HIDDEN, LATENT],
+            "layers": layers, "threshold": float(getattr(det, "threshold", 0.0)),
+            "n_params": n_params, "vocab_size": vocab_size,
+            "features": ["query_name_length", "subdomain_entropy", "encoded_labels",
+                         "qname_reconstruction_error"],
+            "note": "Character-embedding GRU sequence autoencoder — scores qname strings "
+                    "(lexical), trained on benign qnames only. Catches high-entropy DNS exfil."}
 
 
 def _if_card(det, proto: str) -> dict:
@@ -197,12 +224,13 @@ def build_model_card(active_backend: str, models_dir: str) -> dict:
 
     md = Path(models_dir)
     builders = {"local": ("autoencoder", _ae_card),
+                "charae": ("autoencoder", _charae_card),
                 "isolation_forest": ("isolation_forest", _if_card),
                 "morpheus": ("autoencoder", _morpheus_card)}
     backends: dict = {}
     for backend, (btype, builder) in builders.items():
         models: dict = {}
-        for proto in ("dns", "snmp"):
+        for proto in ("dns",):
             path = md / f"{proto}_{backend}.pt"
             if not path.exists():
                 continue

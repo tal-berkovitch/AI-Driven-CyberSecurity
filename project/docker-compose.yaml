@@ -1,9 +1,9 @@
-name: soc-dns-snmp
+name: soc-dns
 
 # Phase 1 topology: three agents on a STRICTLY ISOLATED bridge network.
 # `internal: true` => no route to host or the internet. Safe detonation.
 #
-#   attacker (benign DNS+SNMP gen) --> collector (dnsmasq + snmpd + passive tap)
+#   attacker (benign DNS gen) --> collector (dnsmasq + passive tap)
 #                                            |  parsed CaptureEvents
 #                                            v  file-queue spine (./data/queue)
 #                                      defender (features -> baseline CSV in ./data/baseline)
@@ -74,7 +74,7 @@ services:
     environment:
       - COLLECTOR_HOST=collector
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # benign (default) | all | comma-list of dns_tunnel,snmp_recon,snmp_amplify
+      # benign (default) | all | comma-list of dns_tunnel
       - ATTACK_MODE=${ATTACK_MODE:-benign}
       # mixed = organic waves, randomized per run (best demo); loud|slow = fixed
       - ATTACK_INTENSITY=${ATTACK_INTENSITY:-mixed}

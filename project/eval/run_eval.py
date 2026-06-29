@@ -16,13 +16,12 @@ import pandas as pd
 
 from defender.detect import make_detector
 from defender.features.dns import DNS_FEATURES
-from defender.features.snmp import SNMP_FEATURES
 
 from . import metrics
 from .scenarios import build_labeled_records
 
 BACKENDS = ("isolation_forest", "local")
-SCHEMAS = {"dns": DNS_FEATURES, "snmp": SNMP_FEATURES}
+SCHEMAS = {"dns": DNS_FEATURES}
 REPORT_DIR = Path(__file__).resolve().parent / "report"
 
 

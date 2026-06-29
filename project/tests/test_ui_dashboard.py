@@ -34,15 +34,15 @@ def test_traffic_row_and_alert_summary_extract_fields():
 
 def test_state_counters_and_technique_freq():
     st = DashboardState()
-    st.add_capture([{"proto": "dns"}, {"proto": "snmp"}, {"proto": "dns"}])
-    st.add_cti(_alert_dict(techs=["T1046"]))
-    st.add_cti(_alert_dict(techs=["T1046", "T1602.001"]))
+    st.add_capture([{"proto": "dns"}, {"proto": "dns"}, {"proto": "dns"}])
+    st.add_cti(_alert_dict(techs=["T1572"]))
+    st.add_cti(_alert_dict(techs=["T1572", "T1048.003"]))
 
     stats = st.stats()
     assert stats["total_captures"] == 3
     assert stats["total_alerts"] == 2
     assert stats["by_proto"] == {"dns": 2}
-    assert stats["technique_freq"]["T1046"] == 2
+    assert stats["technique_freq"]["T1572"] == 2
     assert sum(stats["alert_buckets"]) == 2            # both alerts counted in the chart
 
 

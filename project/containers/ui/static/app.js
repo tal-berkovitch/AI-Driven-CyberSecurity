@@ -34,7 +34,6 @@ function renderStats(s) {
   $("c-captures").textContent = s.total_captures;
   $("c-alerts").textContent = s.total_alerts;
   $("c-dns").textContent = s.by_proto.dns || 0;
-  $("c-snmp").textContent = s.by_proto.snmp || 0;
   $("cap-count").textContent = s.total_captures + " events";
   $("alert-count").textContent = s.total_alerts;
 

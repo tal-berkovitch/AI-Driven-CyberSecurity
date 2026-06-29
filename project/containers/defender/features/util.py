@@ -1,10 +1,9 @@
-"""Small numeric helpers shared by the DNS and SNMP extractors."""
+"""Small numeric helpers for the DNS feature extractor."""
 
 from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Iterable
 
 
 def char_entropy(s: str) -> float:
@@ -18,15 +17,6 @@ def char_entropy(s: str) -> float:
     counts = Counter(s)
     n = len(s)
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
-
-
-def dist_entropy(counts: Iterable[float]) -> float:
-    """Shannon entropy (bits) over a frequency distribution given as raw counts."""
-    counts = [c for c in counts if c > 0]
-    total = sum(counts)
-    if total <= 0:
-        return 0.0
-    return -sum((c / total) * math.log2(c / total) for c in counts)
 
 
 def registered_domain(qname: str) -> str:

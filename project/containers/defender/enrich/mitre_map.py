@@ -1,8 +1,8 @@
 """Feature-attribution -> MITRE technique retrieval.
 
 The KB ``indicators`` are written in our feature vocabulary (e.g.
-"high subdomain_entropy", "high getnext_rate"), so we can rank techniques by how
-well an alert's *top-attributed* features overlap a technique's indicators,
+"high subdomain_entropy", "high query_name_length"), so we can rank techniques by
+how well an alert's *top-attributed* features overlap a technique's indicators,
 weighted by attribution magnitude. Deterministic and grounded — the retrieval
 step of "RAG, not free generation".
 """
@@ -39,7 +39,7 @@ def _tokens(text: str) -> set[str]:
 
 def _default_kb_path() -> Path:
     # Resolve via the shared package so it works on host AND in-container.
-    return Path(shared.__file__).resolve().parent / "mitre" / "dns_snmp_techniques.json"
+    return Path(shared.__file__).resolve().parent / "mitre" / "dns_techniques.json"
 
 
 class MitreEnricher:

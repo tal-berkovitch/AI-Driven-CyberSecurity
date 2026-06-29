@@ -20,7 +20,7 @@ LOG = logging.getLogger("cti")
 ALERTS_TOPIC = "alerts"
 CTI_TOPIC = "cti"
 
-_KB_PATH = Path(shared.__file__).resolve().parent / "mitre" / "dns_snmp_techniques.json"
+_KB_PATH = Path(shared.__file__).resolve().parent / "mitre" / "dns_techniques.json"
 
 
 def _load_cards() -> dict[str, dict]:

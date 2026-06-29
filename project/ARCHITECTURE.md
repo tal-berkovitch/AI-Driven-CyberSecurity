@@ -1,4 +1,4 @@
-# Architecture: Multi-Agent AI System for DNS/SNMP Anomaly Detection & CTI Generation
+# Architecture: Multi-Agent AI System for DNS Exfiltration/Tunneling Detection & CTI Generation
 
 **Course:** AI in Cybersecurity based on NVIDIA Morpheus (HIT)
 **Category:** Type 2 — Integrated Project
@@ -39,9 +39,9 @@ Strictly isolated Docker bridge network (`internal: true`, no route to host/WAN)
   │                    │      │                        │     │                     │
   │ benign generator   │      │ capture → features     │     │ DNS resolver        │
   │ attack injectors:  │      │   → DETECTOR (pluggable)│     │   (dnsmasq/CoreDNS) │
-  │  - DNS tunneling   │      │   → enrichment (MITRE) │     │ SNMP agent (snmpd)  │
-  │  - SNMP recon/walk │      │   → CTI (LLM)          │     │                     │
-  │  - SNMP amplify    │      │   → ChainLit UI        │     │                     │
+  │  - DNS tunneling   │      │   → enrichment (MITRE) │     │                     │
+  │  - DNS exfiltration│      │   → CTI (LLM)          │     │                     │
+  │                    │      │   → FastAPI/SSE UI     │     │                     │
   └────────────────────┘      └───────────┬────────────┘     └─────────────────────┘
                                            │
                               feature/alert transport (Kafka topic)
@@ -92,7 +92,7 @@ only change at the Kafka/Morpheus boundary is that the topic carries
 # shared/schema.py
 @dataclass
 class FeatureRecord:
-    protocol: str            # "dns" | "snmp"
+    protocol: str            # "dns"
     ts: float
     src: str
     dst: str
@@ -139,19 +139,23 @@ share one mechanism.
 
 ## 4. Feature engineering (physically meaningful → explainable)
 
-**DNS** — `query_name_length`, `subdomain_entropy`, `label_count`,
-`txt_record_count`, `null_record_count`, `qtype_distribution`,
+**DNS behavioral (per-window)** — `query_name_length`, `subdomain_entropy`,
+`label_count`, `txt_record_count`, `null_record_count`, `qtype_distribution`,
 `unique_subdomains_per_domain`, `query_rate`, `response_size`,
-`upstream_vs_cached_ratio`.
+`nxdomain_rate`. These feed the Isolation Forest / window-AE backends.
 
-**SNMP** — `get_rate`, `getnext_rate`, `getbulk_rate`, `oid_range_walked`,
-`packet_size`, `request_response_ratio`, `community_string_entropy`,
-`distinct_oids_per_window`.
+**DNS lexical (per-query)** — the char-embedding AE backend (`detect/char_ae.py`)
+does *not* hand-engineer features: it consumes the qname **character sequence**
+directly (Embedding → GRU encoder → latent → GRU decoder), and the per-character
+reconstruction loss is the score. This learns the lexical "shape" of benign names,
+so high-entropy base32/base64 exfil labels stand out — the representation that
+takes real CIC-Bell exfil from ROC-AUC ~0.9 (window-aggregate) to 1.000.
 
-These map directly to attacker behavior (e.g., DNS tunneling inflates
-`query_name_length` + `subdomain_entropy` + `txt_record_count`; an SNMP walk
-inflates `getnext_rate` + `distinct_oids_per_window`), which is exactly what the
-per-feature attribution will surface for the LLM.
+Both map directly to attacker behavior (DNS tunneling inflates
+`query_name_length` + `subdomain_entropy` and wrecks char-level reconstruction),
+which is exactly what the per-feature attribution surfaces for the LLM. For a
+char-AE alert the attribution is the worst qname's `query_name_length` /
+`subdomain_entropy` / `encoded_labels`, so the same MITRE retrieval applies.
 
 ---
 
@@ -159,13 +163,13 @@ per-feature attribution will surface for the LLM.
 
 ```
 ScoreResult.feature_attributions  ─┐
-FeatureRecord.meta (raw context)  ─┼─▶ vector DB (MITRE DNS/SNMP KB)
+FeatureRecord.meta (raw context)  ─┼─▶ vector DB (MITRE DNS KB)
                                    │      → candidate techniques (RAG)
                                    └─▶ Groq LLM (SOC-analyst prompt)
                                           → human-readable CTI report
 ```
 
-- **MITRE knowledge base** (`shared/mitre/`): curated JSON of DNS/SNMP-relevant
+- **MITRE knowledge base** (`shared/mitre/`): curated JSON of DNS-relevant
   techniques with descriptions, embedded for retrieval. Small and auditable.
 - **RAG, not free generation:** the LLM is grounded on retrieved technique cards
   + the quantified anomaly evidence, reducing hallucination.
@@ -176,12 +180,6 @@ FeatureRecord.meta (raw context)  ─┼─▶ vector DB (MITRE DNS/SNMP KB)
 |---------------------|------------------------------------------------------------|
 | DNS tunneling (C2)  | T1071.004 (App Layer Protocol: DNS), T1572 (Protocol Tunneling) |
 | DNS exfiltration    | T1048 / T1048.003 (Exfil over alternative/unencrypted protocol) |
-| SNMP recon / walk   | T1046 (Network Service Discovery)                          |
-| SNMP MIB dump       | T1602.001 (Data from Config Repo: SNMP MIB Dump)           |
-| SNMP amplification  | T1498.002 (Reflection Amplification — DDoS)                |
-
-> Note: the proposal mixed "SNMP reconnaissance" (T1046) and "SNMP reflection"
-> (T1498.002) — these are distinct. We support both as separate attack classes.
 
 ---
 
@@ -190,11 +188,12 @@ FeatureRecord.meta (raw context)  ─┼─▶ vector DB (MITRE DNS/SNMP KB)
 This is the centerpiece that answers the lecturer's "robust evaluation" concern.
 
 **Datasets**
-- Benign: diverse, realistic (multiple qtypes, realistic timing/jitter, mixed
-  SNMP polling cadences). Split train/validation/test.
-- Attacks on a **difficulty gradient**: loud (high-volume tunneling, fast walk)
-  → subtle (low-and-slow tunneling, paced walk). This is what prevents the
-  evaluation from being trivially separable.
+- Benign: diverse, realistic (multiple qtypes, realistic timing/jitter). Split
+  train/validation/test. Plus the real **CIC-Bell-DNS-EXF-2021** corpus, replayed
+  through the live parser for the char-AE's headline evaluation.
+- Attacks on a **difficulty gradient**: loud (high-volume tunneling) → subtle
+  (low-and-slow tunneling, word-encoded exfil). This is what prevents the
+  evaluation from being trivially separable (see `eval/stress_charae.py`).
 
 **Detection metrics** — ROC-AUC, PR-AUC, **FPR at fixed recall**, per-attack
 recall, detection latency. Reported **for every backend** (local AE vs
@@ -253,15 +252,15 @@ project/
     capture.py                # CaptureEvent (sensor -> feature plane)  [Phase 1]
     dns.py                    # stdlib DNS wire helpers
     llm.py                    # Groq (OpenAI-compat) access for cti+ui   [Phase 4]
-    mitre/                    # curated DNS/SNMP technique KB (json)
+    mitre/                    # curated DNS technique KB (json)
     transport/                # producer/consumer iface (file → kafka)
   containers/
-    attacker/  main.py (benign DNS+SNMP generator) [Phase 1]; attacks/ [Phase 2]
-    collector/ dnsmasq.conf, snmpd.conf, entrypoint.sh, sensor.py (passive tap) [Phase 1]
+    attacker/  main.py (benign DNS generator) [Phase 1]; attacks/ [Phase 2]
+    collector/ dnsmasq.conf, entrypoint.sh, sensor.py (passive tap) [Phase 1]
     defender/
-      features/   util.py, dns.py, snmp.py, windows.py → FeatureRecord   [Phase 1]
+      features/   util.py, dns.py, windows.py → FeatureRecord          [Phase 1]
       baseline.py capture-consumer writes benign baseline CSV            [Phase 1]
-      detect/     base.py, local_ae.py, isolation_forest.py, morpheus/   [Phase 2]
+      detect/     base.py, char_ae.py, local_ae.py, isolation_forest.py, morpheus/ [Phase 2]
       enrich/     mitre_map.py: attribution → MITRE techniques           [Phase 3]
       main.py     record: features→CSV | detect: score→enrich→alerts     [Phase 1/3]
     cti/          prompts.py, main.py — egress worker                    [Phase 3]
@@ -288,8 +287,8 @@ project/
 | Phase | Deliverable (each is independently defensible)                          |
 |-------|------------------------------------------------------------------------|
 | 0 | Repo + uv + docker-compose; 3 stub containers on isolated bridge; `schema.py`; transport iface. **Proof: containers talk, net is isolated.** |
-| 1 | Benign generators (DNS+SNMP), collector services, capture + feature extraction → baseline CSV. **Proof: real benign feature dataset.** |
-| 2 | `local` AE + `isolation_forest` behind `Detector`; graded attack injectors; eval harness. **Proof: benchmark table — the rigor centerpiece.** |
+| 1 | Benign DNS generator, collector services, capture + feature extraction → baseline CSV. **Proof: real benign feature dataset.** |
+| 2 | `charae` char-embedding AE + `isolation_forest` (+`local`) behind `Detector`; graded attack injectors; eval harness incl. real CIC-Bell. **Proof: benchmark table — the rigor centerpiece.** |
 | 3 | MITRE KB + vector DB + Groq CTI using per-feature attributions; CTI eval. **Proof: explainable reports + mapping accuracy.** |
 | 4 | ✅ AG2 multi-agent CTI (egress) + custom FastAPI/SSE SOC dashboard — 3 live panels: traffic, analysis+stats charts, auto-refreshing LLM summary (egress, port 8000). **Proof: live multi-agent SOC demo; air-gap preserved.** (Kafka transport deferred — file-queue spine still in use.) |
 | 5 | `morpheus` backend — **plug-and-play scaffold ready** (`detect/morpheus.py`, dfencoder-based, import-safe). On the lab GPU box: `eval.train --backends morpheus` + `DETECTOR_BACKEND=morpheus`; no further code. **Proof (next): Morpheus results + CPU-vs-GPU throughput.** |

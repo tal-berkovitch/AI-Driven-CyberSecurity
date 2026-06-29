@@ -4,8 +4,8 @@ CIC-Bell-DNS-EXF-2021 is a real DNS exfiltration/tunneling dataset from the
 Canadian Institute for Cybersecurity. This adapter replays its PCAPs through the
 **same** packet parser and feature extractors the live tap uses, so the rows it
 produces are byte-for-byte schema-compatible with the synthetic/live data and
-drop straight into ``run_eval``. (CIC-Bell is DNS-only — SNMP attacks stay on the
-synthetic track.)
+drop straight into ``run_eval``. (CIC-Bell is a real DNS exfiltration corpus —
+the headline dataset for this DNS-focused project.)
 
 Expected layout (you organise the downloaded captures into label subdirs):
 
