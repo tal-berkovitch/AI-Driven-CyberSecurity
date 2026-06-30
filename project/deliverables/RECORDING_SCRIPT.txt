@@ -1,0 +1,233 @@
+==============================================================================
+  RECORDING SCRIPT  —  DNS Threat Detection & Cyber Threat Intelligence (CTI)
+  Presenter: Tal Berkovitch
+==============================================================================
+
+HOW TO USE THIS SCRIPT
+  • Part A walks the 8-slide presentation. Part B is the live dashboard demo.
+  • Each segment maps to one slide / one screen. Read it, pause, advance.
+  • [ ] square brackets = stage directions (what to click / show), don't read them.
+  • Times are a guide; total ≈ 8–10 min. Speak slightly slower than feels natural.
+  • Before you hit record: dashboard open at http://localhost:8000, the stack up
+    (DEFENDER_MODE=detect ATTACK_MODE=all), a couple of alerts already on screen.
+
+==============================================================================
+  PART A — THE PRESENTATION
+==============================================================================
+
+------------------------------------------------------------------------------
+SEGMENT 1 — TITLE SLIDE                                            (~25 sec)
+------------------------------------------------------------------------------
+Hi, I'm Tal Berkovitch, and this is my project for the course "AI in
+Cybersecurity based on NVIDIA Morpheus."
+
+It's a multi-agent AI Security Operations Center that detects DNS-based attacks
+— data exfiltration, tunneling, and command-and-control — and then explains
+every detection as threat intelligence mapped to MITRE ATT&CK.
+
+------------------------------------------------------------------------------
+SEGMENT 2 — THE PIPELINE  (slide "1")                              (~55 sec)
+------------------------------------------------------------------------------
+First, the big picture — capture, detect, explain, stream.
+
+On the left, in the red box, is the air-gapped detonation plane. Three
+containers on an internal-only Docker network with no route to the internet.
+The Attacker generates realistic benign DNS traffic plus three attack injectors.
+The Collector is the DNS resolver where traffic terminates — and it hosts a
+passive packet tap. And the Defender is the brain: it captures packets, extracts
+features, runs the detector, and raises alerts.
+
+[ point to the purple box on the right ]
+On the right is the egress SOC zone — off the air-gapped network. I used kafka to carry the data out to where a CTI worker turns alerts into reports.
+and a live dashboard streams everything to the analyst.
+
+The three ideas to hold onto: we detect by behaviour, not signatures — the model
+learns the normal DNS heartbeat with no attack labels. The detector is pluggable.
+And we don't just detect, we explain.
+
+------------------------------------------------------------------------------
+SEGMENT 3 — THE MODEL  (slide "2")                                (~60 sec)
+------------------------------------------------------------------------------
+Now the deep-learning model — and this is the most interesting result.
+
+My first version, on the left, was a plain autoencoder over aggregate window
+features — things like query rate and entropy. An autoencoder learns to
+reconstruct normal traffic, so anything it reconstructs badly is an anomaly. The
+problem: by summarizing each window into a feature vector, it throws away the
+query name text itself — which is the most discriminating signal.
+
+We evaluate with ROC-AUC — Receiver Operating Characteristic,  Area Under the Curve — a metric that measures how often the model gives attacks a higher anomaly score than benign queries.
+
+The plain autoencoder topped out around 0.91 for our evaluation metric.
+
+So version two, on the right, is a character-embedding autoencoder. It
+reads each query name character by character — embedding, GRU encoder, a latent
+bottleneck, GRU decoder — and learns the lexical shape of benign names. When an
+attacker encodes stolen data into a query name, you get long, high-entropy
+base32 strings that reconstruct badly and light up immediately.
+
+[ point to the green strip ]
+And here's the key finding: same data, same anomaly idea — the only thing that
+changed is the input representation. Going from window features to per-character
+sequence lifted held-out exfiltration from 0.91 to a perfect 1.000. The
+representation mattered more than the algorithm.
+
+------------------------------------------------------------------------------
+SEGMENT 4 — TWO DETECTORS  (slide "3")                            (~45 sec)
+------------------------------------------------------------------------------
+I actually run two detectors, because they cover each other's blind spots.
+
+The character-embedding autoencoder is lexical — it scores the text of each
+query, and it's unbeatable on high-entropy encoded names.
+
+The Isolation Forest is behavioural — it scores per-window features like query
+rate, subdomain entropy, and NXDOMAIN rate. That catches the sneaky stuff: word-
+encoded, low-and-slow payloads that the lexical model is, by design, blind to.
+
+Both sit behind one pluggable interface. So with a single flag I can swap between
+the CPU autoencoder, the Isolation Forest, or an NVIDIA Morpheus GPU backend —
+with no change anywhere downstream. That's the Morpheus plug-and-play design the
+course is built around.
+
+------------------------------------------------------------------------------
+SEGMENT 5 — HOW THE CTI WORKS  (slide "4")                        (~50 sec)
+------------------------------------------------------------------------------
+Detecting is only half of it. An analyst needs to know what it means — so every
+alert becomes a piece of threat intelligence.
+
+The flow goes left to right. We start with the alert and its per-feature attribution — which features drove the score. We use those features to retrieve the matching MITRE ATT&CK technique cards from a curated DNS knowledge base — a lightweight keyword match, no embeddings needed. Then we augment the LLM's prompt with those retrieved cards, and the multi-agent chat generates the report grounded only in them — that's the "retrieval-augmented generation," the RAG step. And out comes a structured SOC report: summary, evidence, MITRE IDs, severity, and recommended actions.
+
+The important part: this is grounded, not free-form. The language model only
+confirms and writes up techniques the retrieval already surfaced — it never
+invents IPs or numbers. And if there's no API key, a deterministic template
+takes over, so it always runs.
+
+Across all three attack types — tunneling, exfiltration, and C2 — we get the
+correct MITRE technique in the top three, every single time.
+
+------------------------------------------------------------------------------
+SEGMENT 6 — MULTI-AGENT ORCHESTRATION  (slide "5")                (~50 sec)
+------------------------------------------------------------------------------
+So what actually makes this multi-agent? Let me be concrete about the agents and
+the LLM calls.
+
+There are two LLM agents in a bounded group chat. The Threat-Analyst takes the
+anomaly score, the attribution, and the retrieved ATT&CK cards as its inputs, and
+decides which techniques the evidence supports and how severe it is. The
+Report-Writer takes that assessment and writes the final report, then signals
+TERMINATE. A third agent, the Evidence proxy, makes no LLM calls at all — it just
+seeds the conversation and runs the round-robin, capped at four rounds.
+
+[ point to the right panel ]
+On the right are the LLM invocations themselves. One per alert for the CTI report.
+A periodic one for the dashboard's live situation summary. And an on-demand one to
+switch the model live.
+
+And it degrades gracefully — the chat is bounded, throttled, and never a hard
+dependency. If the key is missing or anything errors, it falls back to a
+deterministic report. The air-gapped defender, by the way, never calls an LLM.
+
+------------------------------------------------------------------------------
+SEGMENT 7 — THE STACK  (slide "6")                                (~35 sec)
+------------------------------------------------------------------------------
+Quickly, the main tools and what each one does.
+
+Docker gives us the isolated, internal-only detonation plane — that's the air-gap.
+Apache Kafka is the transport spine carrying data between zones. PyTorch runs the
+character-embedding autoencoder; scikit-learn runs the Isolation Forest. AG2 —
+AutoGen — orchestrates the multi-agent chat, and Groq serves the LLM behind it.
+FastAPI with Server-Sent Events powers the live dashboard. And NVIDIA Morpheus is
+the plug-and-play GPU backend behind that same detector interface.
+
+------------------------------------------------------------------------------
+SEGMENT 8 — RESULTS  (slide "7")                                  (~35 sec)
+------------------------------------------------------------------------------
+To wrap the results: a perfect ROC-AUC, recall of one at a tenth-of-a-percent
+false-positive rate, correct MITRE mapping in the top three every time, and zero
+internet routes out of the attack plane.
+
+The headline takeaway is that the representation beat the algorithm, and that
+detection and explanation are driven by the same evidence. Future work is running
+the Morpheus GPU backend for a throughput comparison and extending to more covert
+channels.
+
+Now let me show you the system actually running.
+
+[ Alt-Tab / switch to the browser at http://localhost:8000 ]
+
+==============================================================================
+  PART B — THE LIVE DASHBOARD
+==============================================================================
+
+------------------------------------------------------------------------------
+SEGMENT 9 — ORIENTATION                                           (~25 sec)
+------------------------------------------------------------------------------
+This is the live SOC dashboard, streaming over Server-Sent Events — everything
+you see is real-time from the running pipeline.
+
+[ gesture across the panels ]
+At a glance: the live DNS traffic feed, the detector model panel, the statistics
+and MITRE breakdown, the recent alerts, and the LLM situation summary. Let me
+walk through them.
+
+------------------------------------------------------------------------------
+SEGMENT 10 — LIVE TRAFFIC FEED                                    (~30 sec)
+------------------------------------------------------------------------------
+[ point to the traffic feed ]
+Here's the live DNS traffic. Most of it is ordinary benign lookups — that's the
+normal heartbeat the model was trained on. Every so often you'll see an attack
+query slip in: a long, high-entropy name — that's encoded data riding out over
+DNS.
+
+[ wait for / point to a flagged line ]
+When the detector flags one, it surfaces as an alert. Notice how visually
+different the malicious query name looks from the benign ones — that lexical
+difference is exactly what the autoencoder picks up on.
+
+------------------------------------------------------------------------------
+SEGMENT 11 — DETECTOR MODEL PANEL                                 (~30 sec)
+------------------------------------------------------------------------------
+[ point to the Detector Model panel ]
+This is the model itself. It shows the active backend — the character-embedding
+autoencoder — and the network visualization fires each time an alert comes in;
+you can see the nodes light up as a query gets scored.
+
+[ point to the subtitle / age ]
+It also tracks how recently the model last fired. The score has to clear the
+trained threshold for a window to alert — benign names score well below it, the
+encoded attack names score far above.
+
+------------------------------------------------------------------------------
+SEGMENT 12 — ALERTS + MITRE STATS                                 (~35 sec)
+------------------------------------------------------------------------------
+[ point to Recent Alerts ]
+Here are the recent alerts. Each one carries its anomaly score and its primary
+MITRE technique as a badge — with related techniques folded in behind it.
+
+[ point to the MITRE chart ]
+And this chart counts the primary technique per alert, so you can see the mix of
+what's hitting the network: tunneling, mapped to T1572; exfiltration, T1048.003;
+and C2 over DNS, T1071.004. Three distinct attacks, three distinct fingerprints.
+
+------------------------------------------------------------------------------
+SEGMENT 13 — LLM SITUATION SUMMARY                                (~30 sec)
+------------------------------------------------------------------------------
+[ point to / open an alert's CTI report ]
+And this is the payoff — the threat intelligence. For each alert the multi-agent
+chat produces this report: a summary, the evidence with the actual feature
+values, the MITRE techniques, a severity, and recommended actions.
+
+[ point to the situation summary panel ]
+And up here, the situation summary is the LLM acting as a SOC analyst, describing
+the whole picture in plain language and refreshing as the situation changes —
+turning a stream of raw anomalies into something an analyst can act on.
+
+------------------------------------------------------------------------------
+SEGMENT 14 — CLOSE                                                (~20 sec)
+------------------------------------------------------------------------------
+So that's the full loop: realistic DNS traffic captured in an air-gapped lab, an
+unsupervised autoencoder catching real exfiltration at ROC-AUC one-point-zero,
+and a multi-agent LLM turning each detection into MITRE-mapped threat
+intelligence — all live on one dashboard.
+
+Thanks for watching.
