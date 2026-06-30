@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOC Dashboard — DNS</title>
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/static/logo.svg" class="logo" alt="" />
+      <h1>DNS SOC Dashboard</h1>
+    </div>
+    <span id="conn" class="badge offline">connecting…</span>
+  </header>
+
+  <main class="grid">
+    <div class="col">
+      <section class="panel" id="traffic-panel">
+        <div class="panel-head">
+          <h2>📡 Live Traffic</h2>
+          <span class="sub" id="cap-count">0 events</span>
+        </div>
+        <div class="thead">
+          <span class="proto">proto</span>
+          <span class="dir">type</span>
+          <span class="src">source</span>
+          <span class="arrow"></span>
+          <span class="dst">dest</span>
+          <span class="detail">payload</span>
+        </div>
+        <div class="feed" id="traffic"></div>
+      </section>
+
+      <section class="panel" id="model-panel">
+        <div class="panel-head">
+          <h2 id="model-title">🕸️ Detector Model</h2>
+          <span class="sub" id="model-sub">waiting for model…</span>
+        </div>
+        <div class="backend-switch" id="backend-switch"></div>
+        <div class="model-toggle" id="model-toggle"></div>
+        <div class="model-viz"><svg id="ae-svg" viewBox="0 0 360 200" preserveAspectRatio="xMidYMid meet"></svg></div>
+        <div class="ae-legend" id="ae-legend"><span>low</span><i class="grad"></i><span>high reconstruction error</span></div>
+        <div class="model-card" id="model-card"></div>
+      </section>
+    </div>
+
+    <section class="panel" id="analysis-panel">
+      <div class="panel-head">
+        <h2>📊 Analysis &amp; Statistics</h2>
+        <span class="sub"><span id="alert-count">0</span> alerts</span>
+      </div>
+
+      <div class="counters">
+        <div class="counter"><span class="num" id="c-captures">0</span><span class="lbl">DNS captures</span></div>
+        <div class="counter"><span class="num" id="c-alerts">0</span><span class="lbl">alerts</span></div>
+      </div>
+
+      <div class="chart-block">
+        <h3>Alerts over time</h3>
+        <div class="bars" id="time-chart"></div>
+      </div>
+      <div class="chart-block">
+        <h3>Top MITRE techniques <span class="hint">(each alert maps to several)</span></h3>
+        <div class="hbars" id="mitre-chart"></div>
+      </div>
+
+      <div class="chart-block alerts-block">
+        <h3>Recent alerts</h3>
+        <div class="alerts" id="alerts"></div>
+      </div>
+    </section>
+
+    <div class="col">
+      <section class="panel" id="summary-panel">
+        <div class="panel-head">
+          <h2>🧠 LLM Situation Summary</h2>
+          <span class="sub" id="summary-age">—</span>
+        </div>
+        <div class="summary-transient" id="summary-transient" style="display:none"></div>
+        <div class="summary" id="summary">Waiting for the first situation summary…</div>
+      </section>
+
+      <section class="panel" id="system-panel">
+        <div class="panel-head">
+          <h2>🖥️ System</h2>
+          <span class="sub" id="system-sub">—</span>
+        </div>
+
+        <div class="sys-llm">
+          <div class="sys-row">
+            <span class="k">LLM model</span>
+            <select id="llm-select"></select>
+            <span class="chip" id="llm-status">—</span>
+          </div>
+          <div class="sys-row">
+            <span class="k">token usage</span>
+            <span class="track"><span class="fill" id="llm-token-fill"></span></span>
+            <span class="n" id="llm-token-pct">—</span>
+          </div>
+        </div>
+
+        <h3>Containers</h3>
+        <div class="crow chead">
+          <span class="dot" style="visibility:hidden"></span>
+          <span class="cname">container</span>
+          <span class="metric">cpu</span>
+          <span class="metric">mem</span>
+          <span class="rhead"></span>
+        </div>
+        <div class="containers" id="containers"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

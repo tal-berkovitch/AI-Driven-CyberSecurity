@@ -1,0 +1,45 @@
+[project]
+name = "soc-dns"
+version = "0.1.0"
+description = "Multi-agent AI SOC for DNS exfiltration/tunneling anomaly detection and CTI generation"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Traffic capture (Phase 1, collector tap)
+capture = ["scapy>=2.5"]
+# Benign/attack traffic generation (Phase 1+, attacker)
+generate = ["dnspython>=2.6"]
+# Detection backends (Phase 2). `morpheus` is installed separately on the lab box.
+detect = ["scikit-learn>=1.4", "torch>=2.2"]
+# Enrichment + CTI (Phase 3); Phase 4 adds AG2 multi-agent CTI via Groq's OpenAI-compat API.
+# sentence-transformers/chromadb remain as the optional embedding-RAG upgrade path.
+cti = ["openai>=1.0", "ag2>=0.3", "sentence-transformers>=3.0", "chromadb>=0.5"]
+# SOC UI (Phase 4.5): custom FastAPI + SSE dashboard; Groq (openai compat) for the summary.
+# httpx ships with fastapi's TestClient and is used by the server smoke test.
+ui = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "openai>=1.0", "httpx>=0.27"]
+# Kafka transport spine (Phase 4.7); file-queue stays the default/offline fallback.
+kafka = ["kafka-python>=2.0"]
+# Dev tooling
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[tool.uv]
+# This is an application, not a library — don't try to build/install the repo itself.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Notebooks are Colab-oriented and intentionally use compact cell style
+# (inline semicolons, grouped imports); don't hold them to library lint rules.
+extend-exclude = ["notebooks"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# "." makes `shared` importable; "containers" makes the per-agent packages
+# importable under the SAME name they use in their images (e.g. `defender.features`).
+pythonpath = [".", "containers"]

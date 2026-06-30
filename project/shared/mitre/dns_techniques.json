@@ -1,0 +1,28 @@
+{
+  "techniques": [
+    {
+      "id": "T1071.004",
+      "name": "Application Layer Protocol: DNS",
+      "tactic": "Command and Control",
+      "protocol": "dns",
+      "description": "Adversaries use the DNS protocol for command and control, blending malicious traffic with normal DNS resolution — frequently abusing TXT records to carry commands and beaconing on a regular cadence.",
+      "indicators": ["elevated txt_record_count", "regular beacon cadence", "high query_name_length"]
+    },
+    {
+      "id": "T1572",
+      "name": "Protocol Tunneling",
+      "tactic": "Command and Control",
+      "protocol": "dns",
+      "description": "Adversaries tunnel another protocol's data inside DNS queries/responses to bypass network controls, producing many high-entropy subdomains fanning out under a single tunnel domain.",
+      "indicators": ["high subdomain_entropy", "many unique_subdomains_per_domain", "abnormal qtype distribution"]
+    },
+    {
+      "id": "T1048.003",
+      "name": "Exfiltration Over Unencrypted Non-C2 Protocol",
+      "tactic": "Exfiltration",
+      "protocol": "dns",
+      "description": "Data is exfiltrated over an unencrypted protocol such as DNS, encoding large payloads into long data labels and sustaining a high query rate to push bytes out.",
+      "indicators": ["large encoded labels", "sustained high query_rate", "long data labels"]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+"""Defender detect-mode wiring: FeatureRecords -> scored -> enriched -> Alerts on
+the `alerts` topic. Skipped if torch (the `detect` extra) isn't installed."""
+
+import pytest
+
+pytest.importorskip("torch")
+
+from defender.detect import make_detector  # noqa: E402
+from defender.enrich import MitreEnricher  # noqa: E402
+from defender.features.dns import DNS_FEATURES  # noqa: E402
+from defender.main import DetectSink  # noqa: E402
+
+from eval import scenarios  # noqa: E402
+
+import pandas as pd  # noqa: E402
+
+from shared.schema import Alert  # noqa: E402
+from shared.transport.file_queue import FileQueueConsumer, FileQueueProducer  # noqa: E402
+
+
+def _frame(records):
+    return pd.DataFrame([{c: r.features.get(c, 0.0) for c in DNS_FEATURES} for r in records],
+                        columns=list(DNS_FEATURES))
+
+
+def test_detect_sink_emits_enriched_alerts(tmp_path):
+    det = make_detector("isolation_forest")
+    det.fit(_frame(scenarios.benign_dns(140, seed=10)))
+
+    sink = DetectSink({"dns": det}, MitreEnricher(), FileQueueProducer(tmp_path))
+    sink.handle(scenarios.tunnel_dns(20, "loud", seed=11))
+
+    assert sink.n_alerts > 0, "loud tunneling produced no alerts"
+    alerts = FileQueueConsumer(tmp_path).poll("alerts")
+    assert alerts
+    a0 = Alert.from_dict(alerts[0])
+    assert a0.score.is_anomaly
+    assert a0.candidate_techniques                      # enrichment ran
+    assert a0.score.feature_attributions                # evidence carried
+
+
+def test_detect_sink_ignores_protocol_without_model(tmp_path):
+    # No detector loaded for the records' protocol -> skipped, no crash, no alerts.
+    sink = DetectSink({}, MitreEnricher(), FileQueueProducer(tmp_path))
+    sink.handle(scenarios.tunnel_dns(10, "loud", seed=21))
+    assert sink.n_alerts == 0
+
+
+def test_detect_sink_suppresses_response_dominated_windows(tmp_path):
+    det = make_detector("isolation_forest")
+    det.fit(_frame(scenarios.benign_dns(140, seed=30)))
+    sink = DetectSink({"dns": det}, MitreEnricher(), FileQueueProducer(tmp_path))
+
+    # Loud-tunnel records that WOULD alert, but marked as the response half of the
+    # exchange (server echo) -> must be suppressed, not alerted.
+    recs = scenarios.tunnel_dns(20, "loud", seed=31)
+    for r in recs:
+        r.meta["response_fraction"] = 1.0
+    sink.handle(recs)
+    assert sink.n_alerts == 0
+    assert sink.n_suppressed > 0
+
+
+def test_build_model_card_multi_backend(tmp_path):
+    from defender.main import build_model_card
+
+    # char-AE trains on qname strings; Isolation Forest on the numeric window frame.
+    charae = make_detector("charae", epochs=5)
+    charae.fit(pd.DataFrame({"qname": [f"{h}.example.com" for h in
+               ("www", "api", "mail", "db", "cdn", "ns", "shop", "login")] * 6}))
+    charae.save(str(tmp_path / "dns_charae.pt"))
+    iso = make_detector("isolation_forest")
+    iso.fit(_frame(scenarios.benign_dns(120, seed=40)))
+    iso.save(str(tmp_path / "dns_isolation_forest.pt"))
+
+    card = build_model_card("charae", str(tmp_path))
+    assert card["active_backend"] == "charae"
+    b = card["backends"]
+    # char-embedding AE card carries the funnel layer shape + latent bottleneck
+    ae = b["charae"]["models"]["dns"]
+    assert b["charae"]["available"] and ae["type"] == "autoencoder"
+    assert min(ae["layers"]) == 16 and ae["n_params"] > 0      # LATENT bottleneck
+    assert ae["vocab_size"] > 2
+    # isolation forest card carries its config
+    iff = b["isolation_forest"]["models"]["dns"]
+    assert b["isolation_forest"]["available"] and iff["type"] == "isolation_forest"
+    assert iff["n_estimators"] > 0
+    # morpheus is a declared-but-unavailable placeholder
+    assert b["morpheus"]["available"] is False and "note" in b["morpheus"]
+
+
+def test_resolve_backend_prefers_valid_control_file(tmp_path):
+    from defender.main import resolve_backend
+
+    # no control file -> env
+    assert resolve_backend("charae", str(tmp_path)) == "charae"
+    # valid selection wins
+    (tmp_path / "detector_backend").write_text("isolation_forest", encoding="utf-8")
+    assert resolve_backend("charae", str(tmp_path)) == "isolation_forest"
+    # junk / disallowed selection is ignored -> env
+    (tmp_path / "detector_backend").write_text("nonsense", encoding="utf-8")
+    assert resolve_backend("charae", str(tmp_path)) == "charae"
