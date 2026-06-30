@@ -46,4 +46,5 @@ def run(server_ip: str, stop_event: threading.Event) -> None:
         stop_event.wait(rng.uniform(2.8, 3.6))
 
     LOG.warning("DNS C2 beacon injector active (TXT beaconing, organic campaign)")
-    run_campaign(rng, stop_event, burst)
+    # Short, concentrated active waves; long quiet gaps -> attacks are the minority.
+    run_campaign(rng, stop_event, burst, active=(10.0, 20.0), quiet=(45.0, 95.0))

@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from shared.llm import (
@@ -260,8 +260,20 @@ async def healthz() -> dict:
 
 
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(str(STATIC_DIR / "index.html"))
+async def index() -> HTMLResponse:
+    # Cache-bust the JS/CSS with a token derived from their mtimes, so a rebuild
+    # always forces the browser to fetch the fresh assets (no stale cached app.js).
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    token = "0"
+    try:
+        token = str(int(max((STATIC_DIR / f).stat().st_mtime
+                            for f in ("app.js", "styles.css"))))
+    except OSError:
+        pass
+    html = (html.replace("/static/app.js", f"/static/app.js?v={token}")
+                .replace("/static/styles.css", f"/static/styles.css?v={token}"))
+    # Never cache the HTML itself, so the new ?v= token is always seen on reload.
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/events")

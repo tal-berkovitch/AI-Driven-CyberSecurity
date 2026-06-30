@@ -42,8 +42,9 @@ def run(server_ip: str, stop_event: threading.Event) -> None:
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
                     dns.resolver.NoNameservers, dns.exception.Timeout):
                 pass
-        # Sustained rate: short gaps between bursts to keep the bytes flowing.
-        stop_event.wait(rng.uniform(0.4, 1.2) if intensity == "loud" else rng.uniform(4.0, 8.0))
+        # Sustained-but-paced: enough gap that benign traffic still dominates the feed.
+        stop_event.wait(rng.uniform(1.5, 3.5) if intensity == "loud" else rng.uniform(6.0, 12.0))
 
     LOG.warning("DNS exfiltration injector active (long data labels, organic campaign)")
-    run_campaign(rng, stop_event, burst)
+    # Short, concentrated active waves; long quiet gaps -> attacks are the minority.
+    run_campaign(rng, stop_event, burst, active=(8.0, 16.0), quiet=(50.0, 100.0))

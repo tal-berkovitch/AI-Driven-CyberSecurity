@@ -164,6 +164,7 @@ let lastDetectorAt = 0;      // epoch ms of the last alert (for the IF "alerting
 const lastAttr = {};         // protocol -> {attributions, score, ts} of its most recent alert
 let selectedBackend = null;  // which backend's view is shown (default = active)
 let currentProto = "dns";    // DNS-only project — no protocol switching
+let secsSinceAlert = null;   // seconds since the last alert; null until the first one
 
 function mrow(k, v) { return `<span class="k">${esc(k)}</span><b>${esc(v)}</b>`; }
 function setBackend(b) { if (modelCard && modelCard.backends[b]) { selectedBackend = b; renderModel(); } }
@@ -198,13 +199,23 @@ function liveVals(feats, proto) {
 }
 function activeTag(b) { return selectedBackend === modelCard.active_backend ? " (active)" : " (inspect)"; }
 
+// seconds after an alert the network still reads as "firing" (drives the heatmap + label)
+const FIRE_SEC = 9;
+// AE panel subtitle, incl. the "Ns ago" age. secsSinceAlert is reset to 0 on each new
+// alert and incremented once per second by the ticker, so the age simply counts up.
+function aeSubText() {
+  const P = currentProto.toUpperCase();
+  if (secsSinceAlert === null) return `${P} · waiting for a ${P} alert`;
+  const label = secsSinceAlert < FIRE_SEC ? "⚡ firing" : "nodes lit";
+  return `${P} · ${label} from last alert (${secsSinceAlert}s ago)`;
+}
+
 function renderAE(b) {
   $("ae-legend").style.display = "";
   const m = b.models[currentProto], layers = m.layers, feats = m.features || [];
   const vals = liveVals(feats, currentProto), maxv = Math.max(1e-9, ...vals);
   // Did the active backend just alert? Drives the per-alert "neurons fire" animation.
-  const la0 = (selectedBackend === modelCard.active_backend) ? lastAttr[currentProto] : null;
-  const recent = !!(la0 && Date.now() - la0.ts < 9000);
+  const recent = secsSinceAlert !== null && secsSinceAlert < FIRE_SEC;
   // spread the layers across more of the panel and use larger nodes for presence
   const W = 360, H = 200, padX = 14, padY = 13, nL = layers.length, minLayer = Math.min(...layers);
   const xs = layers.map((_, i) => padX + (W - 2 * padX) * (nL === 1 ? 0.5 : i / (nL - 1)));
@@ -246,11 +257,7 @@ function renderAE(b) {
     if (rl) parts.push(`<text class="ae-role${rl === "latent" ? " latent" : ""}" x="${xs[i].toFixed(1)}" y="9" text-anchor="middle">${rl}</text>`);
   }
   $("ae-svg").innerHTML = parts.join("");
-  const la = (selectedBackend === modelCard.active_backend) ? lastAttr[currentProto] : null;
-  $("model-sub").textContent = la
-    ? `${currentProto.toUpperCase()} · ${recent ? "⚡ firing" : "nodes lit"} from last alert `
-      + `(${Math.round((Date.now() - la.ts) / 1000)}s ago)`
-    : `${currentProto.toUpperCase()} · waiting for a ${currentProto.toUpperCase()} alert`;
+  $("model-sub").textContent = aeSubText();
   $("model-card").innerHTML =
     mrow("backend", b.label + activeTag(b)) +
     mrow("architecture", layers.join(" → ")) +
@@ -334,7 +341,7 @@ function connect() {
     renderStats(d.stats);
   });
   es.addEventListener("traffic", (e) => addTrafficRows(JSON.parse(e.data)));
-  es.addEventListener("alerts", (e) => addAlerts(JSON.parse(e.data)));
+  es.addEventListener("alerts", (e) => { secsSinceAlert = 0; addAlerts(JSON.parse(e.data)); });
   es.addEventListener("stats", (e) => renderStats(JSON.parse(e.data)));
   es.addEventListener("summary", (e) => renderSummary(JSON.parse(e.data)));
   es.addEventListener("ops", (e) => renderOps(JSON.parse(e.data)));
@@ -375,6 +382,17 @@ function initChartTooltip() {
   });
   chart.addEventListener("mouseleave", () => { tip.style.display = "none"; });
 }
+
+// Count up once per second since the last alert, and refresh the AE subtitle so the
+// "Ns ago" advances (renderModel itself only runs on each alert). Reset happens in the
+// "alerts" handler above.
+setInterval(() => {
+  if (secsSinceAlert === null) return;
+  secsSinceAlert += 1;
+  if (!modelCard || !modelCard.backends || !selectedBackend) return;
+  const b = modelCard.backends[selectedBackend];
+  if (b && b.type === "autoencoder" && b.available) $("model-sub").textContent = aeSubText();
+}, 1000);
 
 initChartTooltip();
 connect();

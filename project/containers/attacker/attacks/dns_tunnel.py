@@ -34,7 +34,9 @@ def run(server_ip: str, stop_event: threading.Event) -> None:
 
     def burst(intensity: str) -> None:
         # Many distinct subdomains per wave -> high unique_subdomains_per_domain.
-        n = rng.randint(15, 30) if intensity == "loud" else rng.randint(2, 4)
+        # Kept large enough per burst to preserve the fan-out signature, but bursts
+        # are spaced out and waves are rare so benign traffic dominates the feed.
+        n = rng.randint(10, 18) if intensity == "loud" else rng.randint(2, 4)
         for _ in range(n):
             qname = f"{_label(rng)}.{TUNNEL_BASE}"
             try:
@@ -42,7 +44,8 @@ def run(server_ip: str, stop_event: threading.Event) -> None:
             except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer,
                     dns.resolver.NoNameservers, dns.exception.Timeout):
                 pass  # the query packet on the wire is the attack; answers are irrelevant
-        stop_event.wait(rng.uniform(0.2, 0.8) if intensity == "loud" else rng.uniform(4.0, 9.0))
+        stop_event.wait(rng.uniform(1.0, 2.5) if intensity == "loud" else rng.uniform(5.0, 10.0))
 
     LOG.warning("DNS tunneling injector active (fan-out subdomains, organic campaign)")
-    run_campaign(rng, stop_event, burst)
+    # Short, concentrated active waves; long quiet gaps -> attacks are the minority.
+    run_campaign(rng, stop_event, burst, active=(8.0, 18.0), quiet=(45.0, 95.0))

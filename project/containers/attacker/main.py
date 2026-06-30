@@ -22,7 +22,9 @@ import dns.resolver
 
 LOG = logging.getLogger("attacker")
 
-HOSTS = ["www", "api", "mail", "db", "cdn", "ntp", "vpn"]
+HOSTS = ["www", "api", "mail", "db", "cdn", "ntp", "vpn", "auth", "portal", "app",
+         "static", "assets", "img", "files", "docs", "intranet", "wiki", "git", "ci",
+         "metrics", "status", "login", "cache", "search", "proxy", "ldap", "smtp"]
 DOMAIN = "example.local"
 # (qtype, weight) — a realistic-ish mix dominated by A lookups.
 QTYPE_WEIGHTS = [("A", 50), ("AAAA", 15), ("TXT", 10), ("MX", 10), ("PTR", 10), ("NX", 5)]
@@ -64,7 +66,9 @@ def dns_loop(server_ip: str) -> None:
             pass  # expected for the NX class
         except (dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.exception.Timeout) as exc:
             LOG.debug("dns query (%s) -> %s", qt, exc.__class__.__name__)
-        _stop.wait(random.uniform(0.5, 3.0))
+        # Steady, fairly brisk baseline — benign DNS is the carrier of the live feed
+        # (attacks are tuned to be the rare minority on top of this).
+        _stop.wait(random.uniform(0.15, 0.9))
 
 
 def main() -> None:
